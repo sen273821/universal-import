@@ -1,50 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db/prisma'
+import { normalizeIncomingRule, parseStoredRule, serializeRuleConfig } from '@/lib/rules'
 
-// GET /api/rules - 获取所有规则
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const rules = await db.parseRule.findMany({
-      orderBy: { updatedAt: 'desc' }
+      orderBy: { updatedAt: 'desc' },
     })
-    return NextResponse.json(rules)
+
+    return NextResponse.json(rules.map(parseStoredRule))
   } catch (error) {
-    console.error('Error fetching rules:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch rules' },
-      { status: 500 }
-    )
+    console.error('获取规则列表失败', error)
+    return NextResponse.json({ error: '获取规则列表失败' }, { status: 500 })
   }
 }
 
-// POST /api/rules - 创建新规则
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    const { name, description, fileType, ruleJson } = body
+    const incoming = normalizeIncomingRule(await request.json())
 
-    if (!name || !fileType || !ruleJson) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      )
+    if (!incoming.name || !incoming.fileType) {
+      return NextResponse.json({ error: '规则名称和文件类型必填' }, { status: 400 })
     }
 
     const rule = await db.parseRule.create({
       data: {
-        name,
-        description,
-        fileType,
-        ruleJson
-      }
+        name: incoming.name,
+        description: incoming.description,
+        fileType: incoming.fileType,
+        ruleJson: serializeRuleConfig(incoming.ruleJson),
+      },
     })
 
-    return NextResponse.json(rule, { status: 201 })
+    return NextResponse.json(parseStoredRule(rule), { status: 201 })
   } catch (error) {
-    console.error('Error creating rule:', error)
-    return NextResponse.json(
-      { error: 'Failed to create rule' },
-      { status: 500 }
-    )
+    console.error('创建规则失败', error)
+    return NextResponse.json({ error: '创建规则失败' }, { status: 500 })
   }
 }

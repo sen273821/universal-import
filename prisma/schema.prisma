@@ -6,5 +6,38 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model ParseRule {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  fileType    String
+  ruleJson    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  orders      Order[]
+}
+
+model Order {
+  id               String     @id @default(uuid())
+  externalCode     String?
+  storeName        String?
+  recipientName    String?
+  recipientPhone   String?
+  recipientAddress String?
+  skuCode          String
+  skuName          String
+  skuQuantity      Int
+  skuSpec          String?
+  remark           String?
+  ruleId           String?
+  createdAt        DateTime   @default(now())
+  rule             ParseRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@index([externalCode])
+  @@index([recipientName])
+  @@index([createdAt])
 }

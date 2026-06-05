@@ -1,346 +1,424 @@
-import { ParseRule, ParseResult, Order, FieldMapping } from '@/types'
+import type {
+  ColumnMappingRule,
+  GridSheet,
+  OrderRecord,
+  ParseResult,
+  ParseRule,
+  RawRow,
+  TextBlock,
+  TextMappingRule,
+} from '@/types'
 import { parseExcel } from './excel'
-import { parseWord } from './word'
 import { parsePDF } from './pdf'
+import {
+  collectFooterText,
+  detectHeaderIndex,
+  extractByPattern,
+  extractFooterLabels,
+  makeRawPreviewFromBlocks,
+  makeRawPreviewFromSheets,
+  mapValidationToParseErrors,
+  normalizeCellValue,
+  setRecordField,
+  toSafeOrderRecord,
+  validateOrders,
+} from './utils'
+import { parseWord } from './word'
 
-// 规则引擎核心
-export async function parseFile(
-  file: File,
-  rule: ParseRule
-): Promise<ParseResult> {
+type SourcePayload =
+  | { kind: 'grid'; sheets: GridSheet[] }
+  | { kind: 'text'; blocks: TextBlock[] }
+
+export async function parseFile(file: File, rule: ParseRule): Promise<ParseResult> {
   try {
-    let parsedData: any[] = []
+    const source = await readByFileType(file, rule)
+    const records = source.kind === 'grid'
+      ? parseGridSource(source.sheets, rule)
+      : parseTextSource(source.blocks, rule)
 
-    // 根据文件类型选择解析器
-    switch (rule.fileType) {
-      case 'excel':
-        parsedData = await parseExcel(file, rule)
-        break
-      case 'word':
-        parsedData = await parseWord(file, rule)
-        break
-      case 'pdf':
-        parsedData = await parsePDF(file, rule)
-        break
-      default:
-        throw new Error(`Unsupported file type: ${rule.fileType}`)
-    }
-
-    // 应用字段映射
-    const mappedData = applyFieldMappings(parsedData, rule.fieldMappings)
-
-    // 应用转换规则
-    let transformedData = mappedData
-    if (rule.transformations && rule.transformations.length > 0) {
-      transformedData = applyTransformations(mappedData, rule.transformations)
-    }
-
-    // 应用跨行聚合
-    if (rule.aggregation?.enabled) {
-      transformedData = applyAggregation(transformedData, rule.aggregation.groupByField)
-    }
-
-    // 应用矩阵转置
-    if (rule.matrixTranspose?.enabled) {
-      transformedData = applyMatrixTranspose(transformedData, rule.matrixTranspose)
-    }
-
-    // 应用卡片式拆分
-    if (rule.cardSplit?.enabled) {
-      transformedData = applyCardSplit(transformedData, rule.cardSplit.cardStartPattern)
-    }
-
-    // 验证数据
-    const { validOrders, errors } = validateOrders(transformedData)
+    const normalized = applyRecordPipeline(records, rule)
+    const validationErrors = validateOrders(normalized)
 
     return {
-      success: errors.length === 0,
-      data: validOrders,
-      errors: errors.map((e, i) => ({ row: i + 1, message: e })),
+      success: validationErrors.length === 0,
+      data: normalized,
+      errors: mapValidationToParseErrors(validationErrors),
+      validationErrors,
       warnings: [],
-      totalRows: parsedData.length,
-      parsedRows: validOrders.length
+      totalRows: records.length,
+      parsedRows: normalized.length,
+      rawPreview: source.kind === 'grid' ? makeRawPreviewFromSheets(source.sheets) : makeRawPreviewFromBlocks(source.blocks),
     }
   } catch (error) {
-    console.error('Parse error:', error)
     return {
       success: false,
       data: [],
-      errors: [{ row: 0, message: `解析失败: ${error instanceof Error ? error.message : String(error)}` }],
+      errors: [
+        {
+          row: 0,
+          message: `解析失败：${error instanceof Error ? error.message : String(error)}`,
+        },
+      ],
+      validationErrors: [],
       warnings: [],
       totalRows: 0,
-      parsedRows: 0
+      parsedRows: 0,
+      rawPreview: [],
     }
   }
 }
 
-// 应用字段映射
-function applyFieldMappings(data: any[], mappings: FieldMapping[]): any[] {
-  return data.map(row => {
-    const mappedRow: any = {}
-
-    mappings.forEach(mapping => {
-      let value: any = null
-
-      switch (mapping.type) {
-        case 'column':
-          // 按列名或列索引获取值
-          if (mapping.columnIndex !== undefined) {
-            const keys = Object.keys(row)
-            value = row[keys[mapping.columnIndex]]
-          } else {
-            value = row[mapping.source]
-          }
-          break
-        case 'regex':
-          // 从某个字段中用正则提取
-          const sourceValue = row[mapping.source] || ''
-          if (mapping.regex) {
-            const match = String(sourceValue).match(new RegExp(mapping.regex))
-            value = match ? match[1] || match[0] : null
-          }
-          break
-        case 'static':
-          // 静态值
-          value = mapping.value
-          break
-        case 'computed':
-          // 计算值（简单表达式）
-          if (mapping.value) {
-            try {
-              // 替换变量
-              let expr = mapping.value
-              Object.keys(row).forEach(key => {
-                expr = expr.replace(`{${key}}`, row[key] || '')
-              })
-              value = expr
-            } catch {
-              value = null
-            }
-          }
-          break
-      }
-
-      // 应用默认值
-      if ((value === null || value === undefined || value === '') && mapping.defaultValue) {
-        value = mapping.defaultValue
-      }
-
-      mappedRow[mapping.target] = value
-    })
-
-    return mappedRow
-  })
+async function readByFileType(file: File, rule: ParseRule): Promise<SourcePayload> {
+  switch (rule.fileType) {
+    case 'excel':
+      return { kind: 'grid', sheets: await parseExcel(file, rule) }
+    case 'word':
+      return { kind: 'text', blocks: await parseWord(file, rule) }
+    case 'pdf':
+      return { kind: 'text', blocks: await parsePDF(file, rule) }
+    default:
+      throw new Error(`不支持的文件类型：${rule.fileType}`)
+  }
 }
 
-// 应用转换规则
-function applyTransformations(data: any[], transformations: any[]): any[] {
-  return data.map(row => {
-    const newRow = { ...row }
+function parseGridSource(sheets: GridSheet[], rule: ParseRule): OrderRecord[] {
+  const config = rule.ruleJson
 
-    transformations.forEach(trans => {
-      switch (trans.type) {
-        case 'split':
-          // 拆分字段
-          const splitValue = newRow[trans.sourceField] || ''
-          if (typeof splitValue === 'string') {
-            const parts = splitValue.split(trans.config.separator || ',')
-            parts.forEach((part: string, index: number) => {
-              newRow[`${trans.targetField}_${index}`] = part.trim()
-            })
-          }
-          break
-        case 'merge':
-          // 合并字段
-          const mergeValues = (trans.config.fields || [])
-            .map((f: string) => newRow[f] || '')
-            .filter(Boolean)
-          newRow[trans.targetField] = mergeValues.join(trans.config.separator || ' ')
-          break
-        case 'replace':
-          // 替换值
-          const replaceValue = newRow[trans.sourceField] || ''
-          if (trans.config.replaceMap) {
-            newRow[trans.targetField] = trans.config.replaceMap[replaceValue] || replaceValue
-          }
-          break
-        case 'extract':
-          // 提取值
-          const extractValue = newRow[trans.sourceField] || ''
-          if (trans.config.regex) {
-            const match = String(extractValue).match(new RegExp(trans.config.regex))
-            newRow[trans.targetField] = match ? match[1] || match[0] : null
-          }
-          break
-      }
-    })
+  if (config.matrixTranspose?.enabled) {
+    const records = sheets.flatMap((sheet) => parseMatrixSheet(sheet, rule))
+    return appendGridFooterInfo(records, sheets, rule)
+  }
 
-    return newRow
-  })
+  const rawRows = sheets.flatMap((sheet) =>
+    sheet.rows.map<RawRow>((cells, index) => ({
+      rowIndex: (sheet.startRowIndex ?? 0) + index,
+      sheetName: sheet.sheetName,
+      cells,
+    })),
+  )
+
+  const records = rawRows
+    .filter((row) => row.cells.some((cell) => normalizeCellValue(cell) !== ''))
+    .map((row) => mapGridRowToRecord(row, sheets.find((sheet) => sheet.sheetName === row.sheetName), rule))
+    .filter((record) => Object.values(record).some((value) => normalizeCellValue(value) !== '' && value !== 0))
+    .map((record) => toSafeOrderRecord(record))
+
+  return appendGridFooterInfo(records, sheets, rule)
 }
 
-// 应用跨行聚合
-function applyAggregation(data: any[], groupByField: string): any[] {
-  const groups = new Map<string, any[]>()
+function parseTextSource(blocks: TextBlock[], rule: ParseRule): OrderRecord[] {
+  const baseBlocks = rule.ruleJson.cardSplit?.enabled
+    ? splitCardBlocks(blocks, rule.ruleJson.cardSplit.startPattern, rule.ruleJson.cardSplit.endPattern)
+    : blocks
 
-  data.forEach(row => {
-    const key = row[groupByField] || '__no_group__'
-    if (!groups.has(key)) {
-      groups.set(key, [])
+  return baseBlocks
+    .map((block) => mapTextBlockToRecord(block, rule))
+    .filter((record) => Object.values(record).some((value) => normalizeCellValue(value) !== '' && value !== 0))
+    .map((record) => toSafeOrderRecord(record))
+}
+
+function mapGridRowToRecord(row: RawRow, sheet: GridSheet | undefined, rule: ParseRule): Partial<OrderRecord> {
+  const record: Partial<OrderRecord> = {}
+
+  for (const mapping of rule.ruleJson.columnMappings ?? []) {
+    const value = extractColumnValue(mapping, row, sheet)
+    if (value !== '') {
+      setRecordField(record, mapping.targetField, value)
     }
-    groups.get(key)!.push(row)
-  })
+  }
 
-  const result: any[] = []
-  groups.forEach((rows, key) => {
-    if (key === '__no_group__') {
-      result.push(...rows)
-    } else {
-      // 合并同一组的行
-      const merged = { ...rows[0] }
-      const skuList: any[] = []
+  return record
+}
 
-      rows.forEach(row => {
-        if (row.skuCode && row.skuName) {
-          skuList.push({
-            skuCode: row.skuCode,
-            skuName: row.skuName,
-            skuQuantity: row.skuQuantity,
-            skuSpec: row.skuSpec
-          })
+function extractColumnValue(mapping: ColumnMappingRule, row: RawRow, sheet: GridSheet | undefined): string {
+  if (mapping.staticValue) {
+    return normalizeCellValue(mapping.staticValue)
+  }
+
+  const resolvedIndex = mapping.columnIndex ?? detectHeaderIndex(sheet?.headerRow, mapping.headerPattern, mapping.fallbackPatterns)
+
+  if (resolvedIndex === undefined) {
+    return normalizeCellValue(mapping.defaultValue)
+  }
+
+  const rawValue = normalizeCellValue(row.cells[resolvedIndex] ?? '')
+  const extractedValue = mapping.valuePattern ? extractByPattern(rawValue, mapping.valuePattern) : rawValue
+  return extractedValue || normalizeCellValue(mapping.defaultValue)
+}
+
+function mapTextBlockToRecord(block: TextBlock, rule: ParseRule): Partial<OrderRecord> {
+  const record: Partial<OrderRecord> = {}
+
+  for (const mapping of rule.ruleJson.textMappings ?? []) {
+    const value = extractTextValue(mapping, block)
+    if (value !== '') {
+      setRecordField(record, mapping.targetField, value)
+    }
+  }
+
+  return record
+}
+
+function extractTextValue(mapping: TextMappingRule, block: TextBlock): string {
+  const extractedValue = extractByPattern(block.content, mapping.pattern, mapping.groupIndex)
+  return extractedValue || normalizeCellValue(mapping.defaultValue)
+}
+
+function appendGridFooterInfo(records: OrderRecord[], sheets: GridSheet[], rule: ParseRule): OrderRecord[] {
+  if (records.length === 0) {
+    return records
+  }
+
+  const footerValues = extractGridFooterValues(sheets, rule)
+  if (Object.keys(footerValues).length === 0) {
+    return records
+  }
+
+  return records.map((record) => ({
+    ...footerValues,
+    ...record,
+    storeName: normalizeCellValue(record.storeName) || footerValues.storeName,
+    recipientName: normalizeCellValue(record.recipientName) || footerValues.recipientName,
+    recipientPhone: normalizeCellValue(record.recipientPhone) || footerValues.recipientPhone,
+    recipientAddress: normalizeCellValue(record.recipientAddress) || footerValues.recipientAddress,
+  }))
+}
+
+function extractGridFooterValues(sheets: GridSheet[], rule: ParseRule): Partial<OrderRecord> {
+  const footerValues: Partial<OrderRecord> = {}
+
+  if (rule.ruleJson.footerExtraction?.enabled) {
+    const footerText = sheets
+      .map((sheet) => collectFooterText(sheet.rows, rule.ruleJson.footerExtraction?.searchFromBottomRows))
+      .filter(Boolean)
+      .join('\n')
+
+    for (const pattern of rule.ruleJson.footerExtraction.patterns) {
+      const value = extractByPattern(footerText, pattern.pattern, pattern.groupIndex)
+      if (value) {
+        setRecordField(footerValues, pattern.field, value)
+      }
+    }
+  }
+
+  if (rule.ruleJson.footerInfo?.enabled) {
+    const footerRows = sheets.flatMap((sheet) => {
+      const maxRows = rule.ruleJson.footerInfo?.maxSearchRows ?? 5
+      return sheet.rows.slice(Math.max(0, sheet.rows.length - maxRows))
+    })
+
+    const labelMap = rule.ruleJson.footerInfo.labels
+    if (labelMap.recipientName?.length) {
+      footerValues.recipientName = extractFooterLabels(footerRows, labelMap.recipientName)
+    }
+    if (labelMap.recipientPhone?.length) {
+      footerValues.recipientPhone = extractFooterLabels(footerRows, labelMap.recipientPhone)
+    }
+    if (labelMap.recipientAddress?.length) {
+      footerValues.recipientAddress = extractFooterLabels(footerRows, labelMap.recipientAddress)
+    }
+    if (labelMap.storeName?.length) {
+      footerValues.storeName = extractFooterLabels(footerRows, labelMap.storeName)
+    }
+  }
+
+  return footerValues
+}
+
+function parseMatrixSheet(sheet: GridSheet, rule: ParseRule): OrderRecord[] {
+  const config = rule.ruleJson.matrixTranspose
+  if (!config?.enabled) {
+    return []
+  }
+
+  const headerRow = sheet.headerRow ?? []
+  const startColumnIndex = config.startColumnIndex ?? 1
+  const endColumnIndex = config.endColumnIndex ?? Math.max(headerRow.length - 1, 0)
+  const storeColumnIndex = config.storeColumnIndex ?? 0
+  const startRowIndex = config.startRowIndex ?? 0
+  const quantityPattern = config.quantityPattern ? new RegExp(config.quantityPattern, 'i') : /(.+?)[x×*](\d+)/i
+
+  const results: OrderRecord[] = []
+
+  for (let rowIndex = startRowIndex; rowIndex < sheet.rows.length; rowIndex += 1) {
+    const row = sheet.rows[rowIndex] ?? []
+    const skuCode = normalizeCellValue(config.skuCodeColumnIndex !== undefined ? row[config.skuCodeColumnIndex] : '')
+    const skuName = normalizeCellValue(config.skuNameColumnIndex !== undefined ? row[config.skuNameColumnIndex] : '')
+    const skuSpec = normalizeCellValue(config.skuSpecColumnIndex !== undefined ? row[config.skuSpecColumnIndex] : '')
+
+    for (let columnIndex = startColumnIndex; columnIndex <= endColumnIndex; columnIndex += 1) {
+      const storeName = normalizeCellValue(config.storeRowIndex !== undefined ? headerRow[columnIndex] : row[storeColumnIndex])
+      const cellValue = normalizeCellValue(row[columnIndex])
+
+      if (config.skipEmpty !== false && (!storeName || !cellValue)) {
+        continue
+      }
+
+      let quantity = Number.parseInt(cellValue, 10)
+      let effectiveSkuName = skuName
+
+      if ((!Number.isFinite(quantity) || quantity <= 0) && cellValue) {
+        const matched = cellValue.match(quantityPattern)
+        if (matched) {
+          effectiveSkuName = normalizeCellValue(matched[1]) || skuName
+          quantity = Number.parseInt(matched[2], 10)
         }
+      }
+
+      results.push({
+        externalCode: '',
+        storeName,
+        recipientName: '',
+        recipientPhone: '',
+        recipientAddress: '',
+        skuCode,
+        skuName: effectiveSkuName,
+        skuQuantity: Number.isFinite(quantity) ? quantity : 0,
+        skuSpec,
+        remark: '',
       })
-
-      merged.skuList = skuList
-      result.push(merged)
     }
-  })
-
-  return result
-}
-
-// 应用矩阵转置
-function applyMatrixTranspose(data: any[], config: any): any[] {
-  const result: any[] = []
-
-  data.forEach(row => {
-    const rowValue = row[config.rowField]
-    if (!rowValue) return
-
-    Object.keys(row).forEach(col => {
-      if (col === config.rowField) return
-
-      const value = row[col]
-      if (!value) return
-
-      // 处理复合值（如 "物品名x数量\n物品名x数量"）
-      if (config.splitPattern && typeof value === 'string') {
-        const items = value.split(new RegExp(config.splitPattern))
-        items.forEach((item: string) => {
-          const match = item.trim().match(/(.+?)[x×](\d+)/)
-          if (match) {
-            result.push({
-              [config.rowField]: rowValue,
-              [config.columnField]: col,
-              skuName: match[1].trim(),
-              skuQuantity: parseInt(match[2])
-            })
-          }
-        })
-      } else {
-        result.push({
-          [config.rowField]: rowValue,
-          [config.columnField]: col,
-          [config.valueField]: value
-        })
-      }
-    })
-  })
-
-  return result
-}
-
-// 应用卡片式拆分
-function applyCardSplit(data: any[], cardStartPattern: string): any[] {
-  const result: any[] = []
-  let currentCard: any[] = []
-  let inCard = false
-
-  data.forEach(row => {
-    const firstValue = Object.values(row)[0]
-    const isFirstValuePattern = typeof firstValue === 'string' &&
-      firstValue.match(new RegExp(cardStartPattern))
-
-    if (isFirstValuePattern) {
-      // 新卡片开始
-      if (currentCard.length > 0) {
-        result.push(...processCard(currentCard))
-      }
-      currentCard = [row]
-      inCard = true
-    } else if (inCard) {
-      currentCard.push(row)
-    }
-  })
-
-  // 处理最后一个卡片
-  if (currentCard.length > 0) {
-    result.push(...processCard(currentCard))
   }
 
-  return result
+  return results
 }
 
-// 处理单个卡片
-function processCard(cardData: any[]): any[] {
-  // 简单实现：将卡片数据视为一个订单
-  // 实际应用中可能需要更复杂的逻辑
-  return cardData
+function splitCardBlocks(blocks: TextBlock[], startPattern: string, endPattern?: string): TextBlock[] {
+  const startRegex = new RegExp(startPattern, 'im')
+  const endRegex = endPattern ? new RegExp(endPattern, 'im') : null
+  const lines = blocks.flatMap((block) => block.content.split('\n'))
+  const nextBlocks: TextBlock[] = []
+  let current: string[] = []
+
+  const pushCurrent = () => {
+    const content = current.join('\n').trim()
+    if (!content) {
+      current = []
+      return
+    }
+
+    nextBlocks.push({
+      index: nextBlocks.length,
+      content,
+    })
+    current = []
+  }
+
+  for (const line of lines) {
+    if (startRegex.test(line) && current.length > 0) {
+      pushCurrent()
+    }
+
+    current.push(line)
+
+    if (endRegex?.test(line)) {
+      pushCurrent()
+    }
+  }
+
+  pushCurrent()
+  return nextBlocks
 }
 
-// 验证订单
-function validateOrders(data: any[]): { validOrders: Order[]; errors: string[] } {
-  const validOrders: Order[] = []
-  const errors: string[] = []
+function applyRecordPipeline(records: OrderRecord[], rule: ParseRule): OrderRecord[] {
+  let current = records
 
-  data.forEach((row, index) => {
-    const order: Order = {
-      externalCode: row.externalCode,
-      storeName: row.storeName,
-      recipientName: row.recipientName,
-      recipientPhone: row.recipientPhone,
-      recipientAddress: row.recipientAddress,
-      skuCode: row.skuCode || '',
-      skuName: row.skuName || '',
-      skuQuantity: parseInt(row.skuQuantity) || 0,
-      skuSpec: row.skuSpec,
-      remark: row.remark
-    }
+  if (rule.ruleJson.splitCellValue?.enabled) {
+    current = applySplitCellValue(current, rule)
+  }
 
-    // 验证必填字段
-    if (!order.skuCode) {
-      errors.push(`第 ${index + 1} 行: SKU编码必填`)
-      return
-    }
-    if (!order.skuName) {
-      errors.push(`第 ${index + 1} 行: SKU名称必填`)
-      return
-    }
-    if (!order.skuQuantity || order.skuQuantity <= 0) {
-      errors.push(`第 ${index + 1} 行: 数量必须为正数`)
-      return
+  if (rule.ruleJson.aggregation?.enabled) {
+    current = applyAggregation(current, rule)
+  }
+
+  return current
+}
+
+function applySplitCellValue(records: OrderRecord[], rule: ParseRule): OrderRecord[] {
+  const config = rule.ruleJson.splitCellValue
+  if (!config?.enabled) {
+    return records
+  }
+
+  const separator = new RegExp(config.itemSeparatorPattern, 'm')
+  const quantityRegex = config.quantityPattern ? new RegExp(config.quantityPattern, 'i') : /(.+?)[x×*](\d+)/i
+
+  return records.flatMap((record) => {
+    const rawValue = normalizeCellValue(record[config.sourceField])
+    if (!rawValue.includes('\n') && !separator.test(rawValue)) {
+      return [record]
     }
 
-    // A组/B组二选一校验
-    const hasStoreName = !!order.storeName
-    const hasRecipient = !!(order.recipientName && order.recipientPhone && order.recipientAddress)
-    if (!hasStoreName && !hasRecipient) {
-      errors.push(`第 ${index + 1} 行: 收货门店或收件人信息必填一组`)
-      return
-    }
+    return rawValue
+      .split(separator)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item) => {
+        const nextRecord: OrderRecord = { ...record }
+        const matched = item.match(quantityRegex)
+        if (matched) {
+          nextRecord.skuName = normalizeCellValue(matched[1]) || record.skuName
+          nextRecord.skuQuantity = Number.parseInt(matched[2], 10) || record.skuQuantity
+        } else {
+          nextRecord.skuName = item
+        }
 
-    validOrders.push(order)
+        return nextRecord
+      })
   })
+}
 
-  return { validOrders, errors }
+function applyAggregation(records: OrderRecord[], rule: ParseRule): OrderRecord[] {
+  const config = rule.ruleJson.aggregation
+  if (!config?.enabled) {
+    return records
+  }
+
+  const grouped = new Map<string, OrderRecord[]>()
+
+  for (const record of records) {
+    const key = normalizeCellValue(record[config.groupByField])
+    if (!key) {
+      const fallbackKey = `__row_${grouped.size}_${record.skuCode}_${record.skuName}`
+      grouped.set(fallbackKey, [record])
+      continue
+    }
+
+    const items = grouped.get(key) ?? []
+    items.push(record)
+    grouped.set(key, items)
+  }
+
+  return Array.from(grouped.values()).map((items) => {
+    if (items.length === 1) {
+      return items[0]
+    }
+
+    const base = { ...items[0] }
+
+    for (const field of config.keepFirstFields ?? []) {
+      const found = items.find((item) => normalizeCellValue(item[field]) !== '')
+      if (found) {
+        base[field] = found[field] as never
+      }
+    }
+
+    for (const field of config.joinFields ?? []) {
+      const joined = Array.from(new Set(items.map((item) => normalizeCellValue(item[field])).filter(Boolean))).join(' / ')
+      if (joined) {
+        base[field] = joined as never
+      }
+    }
+
+    for (const field of config.sumFields ?? []) {
+      const total = items.reduce((sum, item) => sum + (Number(item[field] ?? 0) || 0), 0)
+      base[field] = total as never
+    }
+
+    if (!(config.sumFields ?? []).includes('skuQuantity')) {
+      base.skuQuantity = items.reduce((sum, item) => sum + item.skuQuantity, 0)
+    }
+
+    return base
+  })
 }

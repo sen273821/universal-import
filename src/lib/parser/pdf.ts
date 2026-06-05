@@ -1,39 +1,15 @@
-// 简化 PDF 解析器
-// 实际项目中需要使用 pdf-parse 或其他 PDF 解析库
+import { PDFParse } from 'pdf-parse'
+import type { ParseRule, TextBlock } from '@/types'
+import { splitTextBlocks } from './utils'
 
-// 解析 PDF 文件
-export async function parsePDF(file: File, rule: any): Promise<any[]> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
+export async function parsePDF(file: File, rule: ParseRule): Promise<TextBlock[]> {
+  const arrayBuffer = await file.arrayBuffer()
+  const parser = new PDFParse({ data: new Uint8Array(arrayBuffer) })
 
-    reader.onload = async (e) => {
-      try {
-        // 这里简化处理，实际需要使用 PDF 解析库
-        // const arrayBuffer = e.target?.result as ArrayBuffer
-        // const buffer = Buffer.from(arrayBuffer)
-        // const pdfParse = (await import('pdf-parse')).default
-        // const pdfData = await pdfParse(buffer)
-        // const text = pdfData.text
-
-        // 简化实现：返回空数组
-        // 实际项目中需要解析 PDF 内容
-        resolve([])
-      } catch (error) {
-        reject(error)
-      }
-    }
-
-    reader.onerror = () => {
-      reject(new Error('Failed to read file'))
-    }
-
-    reader.readAsArrayBuffer(file)
-  })
-}
-
-// 检测 PDF 中的多个独立订单
-export function detectMultipleOrders(text: string): string[] {
-  // 按分隔线或页面分隔符拆分
-  const sections = text.split(/(?:^|\n)[-=_]{10,}(?:$|\n)/)
-  return sections.filter((s: string) => s.trim().length > 0)
+  try {
+    const textResult = await parser.getText()
+    return splitTextBlocks(textResult.text, rule.ruleJson.textRecordSeparatorPattern)
+  } finally {
+    await parser.destroy()
+  }
 }

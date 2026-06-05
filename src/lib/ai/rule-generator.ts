@@ -1,165 +1,161 @@
-import { ParseRule, AIRuleSuggestion } from '@/types'
+import OpenAI from 'openai'
+import type { AIRuleSuggestion, ParseRule, ParserFileType } from '@/types'
+import { createEmptyRule, normalizeIncomingRule, parseRuleConfig } from '@/lib/rules'
 
-// AI 分析文件结构并生成规则
+const MODEL_NAME = 'deepseek-chat'
+const BASE_URL = 'https://api.deepseek.com'
+
 export async function generateRuleWithAI(
   fileContent: string,
-  fileType: 'excel' | 'word' | 'pdf',
-  fileName: string
+  fileType: ParserFileType,
+  fileName?: string,
 ): Promise<AIRuleSuggestion> {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
-    throw new Error('OPENAI_API_KEY 环境变量未配置')
+    throw new Error('OPENAI_API_KEY 未配置')
   }
 
-  // 动态导入 OpenAI
-  const OpenAI = (await import('openai')).default
-  const openai = new OpenAI({
+  const client = new OpenAI({
     apiKey,
-    baseURL: process.env.OPENAI_BASE_URL || 'https://api.deepseek.com/v1'
+    baseURL: BASE_URL,
   })
 
-  const systemPrompt = `你是一个文件结构分析专家。分析用户上传的文件内容，生成解析规则。
-
-规则必须包含：
-1. 文件结构（头部行数、数据起始行、尾部行数）
-2. 字段映射（列名到目标字段的映射）
-3. 特殊处理（跨行聚合、矩阵转置等）
-
-返回 JSON 格式，结构如下：
-{
-  "rule": {
-    "name": "规则名称",
-    "description": "规则描述",
-    "fileType": "${fileType}",
-    "structure": {
-      "headerRows": 0,
-      "dataStartRow": 0,
-      "footerRows": 0
-    },
-    "fieldMappings": [
+  const templateRule = createEmptyRule(fileType)
+  const prompt = [
+    '你是物流批量下单文件的规则设计器。',
+    '目标是分析文件内容结构，只输出通用 ParseRule JSON，不要硬编码文件名，也不要依赖某个固定客户模板名称。',
+    '规则必须通过配置描述表头行、数据起始行、字段映射、页尾提取、跨行聚合、矩阵转置、卡片拆分、多 Sheet、复合单元格拆分等能力。',
+    '如果无法确认某项能力，保持 enabled=false，不要臆造。',
+    '必须返回 JSON，对象结构如下：',
+    JSON.stringify(
       {
-        "source": "来源列名",
-        "target": "目标字段名",
-        "type": "column",
-        "columnIndex": 0,
-        "confidence": 0.9
-      }
+        rule: {
+          ...templateRule,
+          ruleJson: templateRule.ruleJson,
+        },
+        confidence: 0.86,
+        explanation: '说明为什么这样判断结构。',
+        assumptions: ['列出 1 到 5 条待用户确认的假设。'],
+      },
+      null,
+      2,
+    ),
+    '字段只允许使用这些目标字段：externalCode, storeName, recipientName, recipientPhone, recipientAddress, skuCode, skuName, skuQuantity, skuSpec, remark。',
+    '请优先生成列匹配正则和文本提取正则，不要写死具体列号，除非从样本中非常明显。',
+    `文件类型：${fileType}`,
+    `文件名：${fileName ?? 'unknown'}`,
+    '文件内容样本如下：',
+    fileContent.slice(0, 12000),
+  ].join('\n\n')
+
+  const response = await client.chat.completions.create({
+    model: MODEL_NAME,
+    temperature: 0.2,
+    response_format: { type: 'json_object' },
+    messages: [
+      {
+        role: 'system',
+        content: '你是物流导入规则设计助手，只能返回 JSON。',
+      },
+      {
+        role: 'user',
+        content: prompt,
+      },
     ],
-    "transformations": []
-  },
-  "confidence": 0.85,
-  "explanation": "规则说明",
-  "fieldConfidences": [
-    {
-      "field": "字段名",
-      "confidence": 0.9,
-      "reason": "置信度说明"
-    }
-  ]
-}
+  })
 
-目标字段包括：
-- externalCode: 外部编码
-- storeName: 收货门店
-- recipientName: 收件人姓名
-- recipientPhone: 收件人电话
-- recipientAddress: 收件人地址
-- skuCode: SKU物品编码
-- skuName: SKU物品名称
-- skuQuantity: SKU发货数量
-- skuSpec: SKU规格型号
-- remark: 备注
+  const rawText = response.choices[0]?.message?.content?.trim()
+  if (!rawText) {
+    throw new Error('AI 未返回内容')
+  }
 
-注意：
-1. 不要硬编码文件名或特定列名
-2. 规则应该是通用的，可以处理类似结构的文件
-3. 对于不确定的映射，降低 confidence 值
-4. 支持复杂结构：跨行聚合、矩阵转置、卡片式拆分等`
+  const parsed = safeParseJson(rawText)
+  const parsedRule = parsed.rule as Record<string, unknown> | undefined
+  const rule = normalizeIncomingRule({
+    ...parsedRule,
+    fileType,
+    ruleJson: parseRuleConfig((parsedRule?.ruleJson as Record<string, unknown>) ?? {}),
+  })
 
-  const userPrompt = `分析以下文件内容，生成解析规则：
-
-文件名：${fileName}
-文件类型：${fileType}
-文件内容（前5000字符）：
-${fileContent.substring(0, 5000)}`
-
-  try {
-    const response = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL || 'deepseek-chat',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.3
-    })
-
-    const content = response.choices[0]?.message?.content
-    if (!content) {
-      throw new Error('AI 未返回有效内容')
-    }
-
-    const result = JSON.parse(content)
-    return result as AIRuleSuggestion
-  } catch (error) {
-    console.error('AI rule generation error:', error)
-    throw new Error(`AI 规则生成失败: ${error instanceof Error ? error.message : String(error)}`)
+  return {
+    rule,
+    confidence: normalizeConfidence(parsed.confidence),
+    explanation: typeof parsed.explanation === 'string' ? parsed.explanation : 'AI 已生成候选规则，请在保存前人工确认。',
+    assumptions: Array.isArray(parsed.assumptions)
+      ? parsed.assumptions.filter((item): item is string => typeof item === 'string')
+      : ['AI 已输出候选规则，请重点确认字段映射和数据起始行。'],
   }
 }
 
-// AI 优化现有规则
-export async function optimizeRuleWithAI(
-  rule: ParseRule,
-  sampleData: string,
-  issues: string[]
-): Promise<ParseRule> {
+export async function optimizeRuleWithAI(rule: ParseRule, fileContent: string, issues: string[]): Promise<AIRuleSuggestion> {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
-    throw new Error('OPENAI_API_KEY 环境变量未配置')
+    throw new Error('OPENAI_API_KEY 未配置')
   }
 
-  // 动态导入 OpenAI
-  const OpenAI = (await import('openai')).default
-  const openai = new OpenAI({
+  const client = new OpenAI({
     apiKey,
-    baseURL: process.env.OPENAI_BASE_URL || 'https://api.deepseek.com/v1'
+    baseURL: BASE_URL,
   })
 
-  const systemPrompt = `你是一个规则优化专家。根据用户反馈的问题，优化解析规则。
+  const prompt = [
+    '你是物流导入规则修正助手。',
+    '请基于当前规则和问题描述，输出一个新的 ParseRule JSON，并给出置信度、解释和待确认假设。',
+    JSON.stringify({ rule, issues, fileContent: fileContent.slice(0, 10000) }, null, 2),
+  ].join('\n\n')
 
-当前规则：
-${JSON.stringify(rule, null, 2)}
+  const response = await client.chat.completions.create({
+    model: MODEL_NAME,
+    temperature: 0.2,
+    response_format: { type: 'json_object' },
+    messages: [
+      {
+        role: 'system',
+        content: '你是物流导入规则修正助手，只能返回 JSON。',
+      },
+      {
+        role: 'user',
+        content: prompt,
+      },
+    ],
+  })
 
-用户反馈的问题：
-${issues.join('\n')}
-
-请返回优化后的规则 JSON。`
-
-  const userPrompt = `优化规则以解决以下问题：
-${issues.join('\n')}
-
-样例数据：
-${sampleData.substring(0, 3000)}`
-
-  try {
-    const response = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL || 'deepseek-chat',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.3
-    })
-
-    const content = response.choices[0]?.message?.content
-    if (!content) {
-      throw new Error('AI 未返回有效内容')
-    }
-
-    return JSON.parse(content) as ParseRule
-  } catch (error) {
-    console.error('AI rule optimization error:', error)
-    throw new Error(`AI 规则优化失败: ${error instanceof Error ? error.message : String(error)}`)
+  const rawText = response.choices[0]?.message?.content?.trim()
+  if (!rawText) {
+    throw new Error('AI 未返回内容')
   }
+
+  const parsed = safeParseJson(rawText)
+  const parsedRule = parsed.rule as Record<string, unknown> | undefined
+  return {
+    rule: normalizeIncomingRule({
+      ...parsedRule,
+      fileType: rule.fileType,
+      ruleJson: parseRuleConfig((parsedRule?.ruleJson as Record<string, unknown>) ?? rule.ruleJson),
+    }),
+    confidence: normalizeConfidence(parsed.confidence),
+    explanation: typeof parsed.explanation === 'string' ? parsed.explanation : 'AI 已根据问题重新整理规则。',
+    assumptions: Array.isArray(parsed.assumptions)
+      ? parsed.assumptions.filter((item): item is string => typeof item === 'string')
+      : [],
+  }
+}
+
+function safeParseJson(rawText: string): Record<string, unknown> {
+  const normalized = rawText
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim()
+
+  return JSON.parse(normalized) as Record<string, unknown>
+}
+
+function normalizeConfidence(value: unknown): number {
+  const num = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(num)) {
+    return 0.5
+  }
+
+  return Math.max(0, Math.min(1, num))
 }

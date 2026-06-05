@@ -1,81 +1,62 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db/prisma'
+import { normalizeIncomingRule, parseStoredRule, serializeRuleConfig } from '@/lib/rules'
 
-// GET /api/rules/[id] - 获取单个规则
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params
-    const rule = await db.parseRule.findUnique({
-      where: { id }
-    })
+    const rule = await db.parseRule.findUnique({ where: { id } })
 
     if (!rule) {
-      return NextResponse.json(
-        { error: 'Rule not found' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: '规则不存在' }, { status: 404 })
     }
 
-    return NextResponse.json(rule)
+    return NextResponse.json(parseStoredRule(rule))
   } catch (error) {
-    console.error('Error fetching rule:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch rule' },
-      { status: 500 }
-    )
+    console.error('获取规则详情失败', error)
+    return NextResponse.json({ error: '获取规则详情失败' }, { status: 500 })
   }
 }
 
-// PUT /api/rules/[id] - 更新规则
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params
-    const body = await request.json()
-    const { name, description, fileType, ruleJson } = body
+    const incoming = normalizeIncomingRule(await request.json())
 
     const rule = await db.parseRule.update({
       where: { id },
       data: {
-        name,
-        description,
-        fileType,
-        ruleJson
-      }
+        name: incoming.name,
+        description: incoming.description,
+        fileType: incoming.fileType,
+        ruleJson: serializeRuleConfig(incoming.ruleJson),
+      },
     })
 
-    return NextResponse.json(rule)
+    return NextResponse.json(parseStoredRule(rule))
   } catch (error) {
-    console.error('Error updating rule:', error)
-    return NextResponse.json(
-      { error: 'Failed to update rule' },
-      { status: 500 }
-    )
+    console.error('更新规则失败', error)
+    return NextResponse.json({ error: '更新规则失败' }, { status: 500 })
   }
 }
 
-// DELETE /api/rules/[id] - 删除规则
 export async function DELETE(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params
-    await db.parseRule.delete({
-      where: { id }
-    })
+    await db.parseRule.delete({ where: { id } })
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error deleting rule:', error)
-    return NextResponse.json(
-      { error: 'Failed to delete rule' },
-      { status: 500 }
-    )
+    console.error('删除规则失败', error)
+    return NextResponse.json({ error: '删除规则失败' }, { status: 500 })
   }
 }

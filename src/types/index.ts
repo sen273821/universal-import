@@ -1,145 +1,202 @@
-// 核心类型定义
+export const ORDER_FIELDS = [
+  'externalCode',
+  'storeName',
+  'recipientName',
+  'recipientPhone',
+  'recipientAddress',
+  'skuCode',
+  'skuName',
+  'skuQuantity',
+  'skuSpec',
+  'remark',
+] as const
 
-// 解析规则
+export type OrderField = (typeof ORDER_FIELDS)[number]
+
+export type ParserFileType = 'excel' | 'word' | 'pdf'
+
+export interface CellReference {
+  row: number
+  col: number
+  sheetName?: string
+}
+
+export interface FileCell extends CellReference {
+  value: string
+}
+
+export interface RawRow {
+  rowIndex: number
+  sheetName?: string
+  cells: string[]
+}
+
+export interface GridSheet {
+  sheetName: string
+  rows: string[][]
+  headerRow?: string[]
+  startRowIndex?: number
+}
+
+export interface TextBlock {
+  index: number
+  content: string
+}
+
+export interface ExtractPattern {
+  field: OrderField
+  pattern: string
+  groupIndex?: number
+  required?: boolean
+}
+
+export interface FooterExtractionRule {
+  enabled: boolean
+  searchFromBottomRows?: number
+  patterns: ExtractPattern[]
+}
+
+export interface FooterInfoRule {
+  enabled: boolean
+  labels: Partial<Record<'recipientName' | 'recipientPhone' | 'recipientAddress' | 'storeName', string[]>>
+  maxSearchRows?: number
+}
+
+export interface AggregationRule {
+  enabled: boolean
+  groupByField: OrderField
+  joinFields?: OrderField[]
+  sumFields?: OrderField[]
+  keepFirstFields?: OrderField[]
+}
+
+export interface MatrixTransposeRule {
+  enabled: boolean
+  storeColumnIndex?: number
+  storeRowIndex?: number
+  skuCodeColumnIndex?: number
+  skuNameColumnIndex?: number
+  skuSpecColumnIndex?: number
+  startColumnIndex?: number
+  endColumnIndex?: number
+  startRowIndex?: number
+  quantityPattern?: string
+  skipEmpty?: boolean
+}
+
+export interface CardSplitRule {
+  enabled: boolean
+  startPattern: string
+  endPattern?: string
+}
+
+export interface SplitCellValueRule {
+  enabled: boolean
+  sourceField: OrderField
+  itemSeparatorPattern: string
+  quantityPattern?: string
+  codePattern?: string
+  specPattern?: string
+}
+
+export interface ColumnMappingRule {
+  targetField: OrderField
+  columnIndex?: number
+  headerPattern?: string
+  fallbackPatterns?: string[]
+  valuePattern?: string
+  defaultValue?: string
+  staticValue?: string
+  required?: boolean
+}
+
+export interface TextMappingRule {
+  targetField: OrderField
+  pattern: string
+  groupIndex?: number
+  required?: boolean
+  defaultValue?: string
+}
+
+export interface ParseRuleConfig {
+  headerRows?: number
+  dataStartRow?: number
+  trimTrailingEmptyRows?: boolean
+  multiSheet?: boolean
+  textRecordSeparatorPattern?: string
+  sheetNames?: string[]
+  columnMappings?: ColumnMappingRule[]
+  textMappings?: TextMappingRule[]
+  footerExtraction?: FooterExtractionRule
+  footerInfo?: FooterInfoRule
+  aggregation?: AggregationRule
+  matrixTranspose?: MatrixTransposeRule
+  cardSplit?: CardSplitRule
+  splitCellValue?: SplitCellValueRule
+}
+
 export interface ParseRule {
-  id: string
+  id?: string
   name: string
   description?: string
-  fileType: 'excel' | 'word' | 'pdf'
-  structure: FileStructure
-  fieldMappings: FieldMapping[]
-  transformations?: Transformation[]
-  footerExtraction?: FooterExtraction
-  aggregation?: AggregationConfig
-  matrixTranspose?: MatrixTransposeConfig
-  cardSplit?: CardSplitConfig
-  createdAt?: Date
-  updatedAt?: Date
+  fileType: ParserFileType
+  ruleJson: ParseRuleConfig
+  createdAt?: string
+  updatedAt?: string
 }
 
-// 文件结构
-export interface FileStructure {
-  headerRows: number        // 头部行数（跳过）
-  dataStartRow: number      // 数据起始行
-  footerRows?: number       // 尾部行数
-  sheetIndex?: number       // Sheet 索引（Excel）
-  allSheets?: boolean       // 是否遍历所有 Sheet
-  cardStartPattern?: string // 卡片起始标志（正则）
-}
-
-// 字段映射
-export interface FieldMapping {
-  source: string           // 来源列名或正则
-  target: string           // 目标字段名
-  type: 'column' | 'regex' | 'static' | 'computed'
-  value?: string           // 静态值或计算表达式
-  columnIndex?: number     // 列索引（从0开始）
-  regex?: string           // 正则表达式
-  defaultValue?: string    // 默认值
-  confidence?: number      // AI 生成的置信度
-}
-
-// 转换规则
-export interface Transformation {
-  type: 'split' | 'merge' | 'replace' | 'extract'
-  sourceField: string
-  targetField: string
-  config: Record<string, any>
-}
-
-// 尾部信息提取
-export interface FooterExtraction {
-  enabled: boolean
-  patterns: {
-    field: string
-    regex: string
-  }[]
-}
-
-// 跨行聚合配置
-export interface AggregationConfig {
-  enabled: boolean
-  groupByField: string     // 按哪个字段分组（如配送单号）
-  aggregateFields: string[] // 需要聚合的字段
-}
-
-// 矩阵转置配置
-export interface MatrixTransposeConfig {
-  enabled: boolean
-  rowField: string         // 行字段名（如门店名）
-  columnField: string      // 列字段名（如日期）
-  valueField: string       // 值字段名（如数量）
-  splitPattern?: string    // 复合值拆分正则
-}
-
-// 卡片式拆分配置
-export interface CardSplitConfig {
-  enabled: boolean
-  cardStartPattern: string // 卡片起始标志（正则）
-  cardEndPattern?: string  // 卡片结束标志
-}
-
-// 订单
-export interface Order {
+export interface OrderRecord {
   id?: string
-  externalCode?: string    // 外部编码
-  storeName?: string       // 收货门店
-  recipientName?: string   // 收件人姓名
-  recipientPhone?: string  // 收件人电话
-  recipientAddress?: string // 收件人地址
-  skuCode: string          // SKU 物品编码
-  skuName: string          // SKU 物品名称
-  skuQuantity: number      // SKU 发货数量
-  skuSpec?: string         // SKU 规格型号
-  remark?: string          // 备注
+  externalCode?: string
+  storeName?: string
+  recipientName?: string
+  recipientPhone?: string
+  recipientAddress?: string
+  skuCode: string
+  skuName: string
+  skuQuantity: number
+  skuSpec?: string
+  remark?: string
   ruleId?: string
-  createdAt?: Date
+  createdAt?: string
 }
 
-// 验证结果
-export interface ValidationResult {
-  valid: boolean
-  errors: ValidationError[]
-}
-
-// 验证错误
 export interface ValidationError {
   row: number
   field: string
   message: string
-  value?: any
+  value?: unknown
 }
 
-// 解析结果
-export interface ParseResult {
-  success: boolean
-  data: Order[]
-  errors: ParseError[]
-  warnings: string[]
-  totalRows: number
-  parsedRows: number
-}
-
-// 解析错误
 export interface ParseError {
   row: number
   message: string
-  details?: any
+  details?: unknown
 }
 
-// AI 生成的规则建议
+export interface ParseResult {
+  success: boolean
+  data: OrderRecord[]
+  errors: ParseError[]
+  validationErrors: ValidationError[]
+  warnings: string[]
+  totalRows: number
+  parsedRows: number
+  rawPreview?: string[][]
+}
+
+export interface ExportOrderPayload {
+  orders?: OrderRecord[]
+  filters?: Partial<Omit<OrderSearchParams, 'page' | 'pageSize'>>
+}
+
 export interface AIRuleSuggestion {
   rule: ParseRule
   confidence: number
   explanation: string
-  fieldConfidences: {
-    field: string
-    confidence: number
-    reason: string
-  }[]
+  assumptions: string[]
 }
 
-// 文件上传状态
 export interface UploadState {
   file: File | null
   progress: number
@@ -147,13 +204,11 @@ export interface UploadState {
   error?: string
 }
 
-// 分页参数
 export interface PaginationParams {
   page: number
   pageSize: number
 }
 
-// 分页结果
 export interface PaginatedResult<T> {
   data: T[]
   total: number
@@ -162,7 +217,6 @@ export interface PaginatedResult<T> {
   totalPages: number
 }
 
-// 搜索参数
 export interface OrderSearchParams extends PaginationParams {
   externalCode?: string
   recipientName?: string

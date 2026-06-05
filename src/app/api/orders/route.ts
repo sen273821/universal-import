@@ -1,18 +1,20 @@
+import { Prisma } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db/prisma'
+import { normalizeOrderInput } from '@/lib/orders'
+import type { OrderRecord } from '@/types'
 
-// GET /api/orders - 获取订单列表（分页）
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    const page = parseInt(searchParams.get('page') || '1')
-    const pageSize = parseInt(searchParams.get('pageSize') || '20')
-    const externalCode = searchParams.get('externalCode') || undefined
-    const recipientName = searchParams.get('recipientName') || undefined
-    const startDate = searchParams.get('startDate') || undefined
-    const endDate = searchParams.get('endDate') || undefined
+    const page = Math.max(1, Number.parseInt(searchParams.get('page') ?? '1', 10) || 1)
+    const pageSize = Math.min(100, Math.max(1, Number.parseInt(searchParams.get('pageSize') ?? '20', 10) || 20))
+    const externalCode = searchParams.get('externalCode')?.trim() ?? ''
+    const recipientName = searchParams.get('recipientName')?.trim() ?? ''
+    const startDate = searchParams.get('startDate')?.trim() ?? ''
+    const endDate = searchParams.get('endDate')?.trim() ?? ''
 
-    const where: any = {}
+    const where: Prisma.OrderWhereInput = {}
     if (externalCode) {
       where.externalCode = { contains: externalCode }
     }
@@ -21,99 +23,104 @@ export async function GET(request: NextRequest) {
     }
     if (startDate || endDate) {
       where.createdAt = {}
-      if (startDate) where.createdAt.gte = new Date(startDate)
-      if (endDate) where.createdAt.lte = new Date(endDate)
+      if (startDate) {
+        where.createdAt.gte = new Date(`${startDate}T00:00:00.000Z`)
+      }
+      if (endDate) {
+        where.createdAt.lte = new Date(`${endDate}T23:59:59.999Z`)
+      }
     }
 
     const [orders, total] = await Promise.all([
       db.order.findMany({
         where,
+        orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
-        orderBy: { createdAt: 'desc' }
       }),
-      db.order.count({ where })
+      db.order.count({ where }),
     ])
 
     return NextResponse.json({
-      data: orders,
+      data: orders.map(serializeOrder),
       total,
       page,
       pageSize,
-      totalPages: Math.ceil(total / pageSize)
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
     })
   } catch (error) {
-    console.error('Error fetching orders:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch orders' },
-      { status: 500 }
-    )
+    console.error('获取运单列表失败', error)
+    return NextResponse.json({ error: '获取运单列表失败' }, { status: 500 })
   }
 }
 
-// POST /api/orders - 批量创建订单
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { orders, ruleId } = body
+    const orders = Array.isArray(body.orders) ? body.orders : []
+    const ruleId = typeof body.ruleId === 'string' && body.ruleId.trim() ? body.ruleId.trim() : undefined
 
-    if (!orders || !Array.isArray(orders) || orders.length === 0) {
-      return NextResponse.json(
-        { error: 'Invalid orders data' },
-        { status: 400 }
-      )
+    if (orders.length === 0) {
+      return NextResponse.json({ error: '请提供要提交的运单数据' }, { status: 400 })
     }
 
-    // 验证必填字段
-    const errors: { row: number; field: string; message: string }[] = []
-    orders.forEach((order: any, index: number) => {
-      if (!order.skuCode) {
-        errors.push({ row: index + 1, field: 'skuCode', message: 'SKU编码必填' })
-      }
-      if (!order.skuName) {
-        errors.push({ row: index + 1, field: 'skuName', message: 'SKU名称必填' })
-      }
-      if (!order.skuQuantity || order.skuQuantity <= 0) {
-        errors.push({ row: index + 1, field: 'skuQuantity', message: '数量必须为正数' })
-      }
-      // A组/B组二选一校验
-      const hasStoreName = !!order.storeName
-      const hasRecipient = !!(order.recipientName && order.recipientPhone && order.recipientAddress)
-      if (!hasStoreName && !hasRecipient) {
-        errors.push({ row: index + 1, field: 'recipient', message: '收货门店或收件人信息必填一组' })
-      }
-    })
+    const normalizedOrders = orders.map((order: Record<string, unknown>) => normalizeOrderInput(order, ruleId))
+    const validationErrors = validateOrderPayload(normalizedOrders)
 
-    if (errors.length > 0) {
-      return NextResponse.json({ errors }, { status: 400 })
+    if (validationErrors.length > 0) {
+      return NextResponse.json({ error: '运单校验失败', validationErrors }, { status: 400 })
     }
 
-    // 批量插入
-    const createdOrders = await db.order.createMany({
-      data: orders.map((order: any) => ({
-        externalCode: order.externalCode,
-        storeName: order.storeName,
-        recipientName: order.recipientName,
-        recipientPhone: order.recipientPhone,
-        recipientAddress: order.recipientAddress,
-        skuCode: order.skuCode,
-        skuName: order.skuName,
-        skuQuantity: parseInt(order.skuQuantity),
-        skuSpec: order.skuSpec,
-        remark: order.remark,
-        ruleId: ruleId || null
-      }))
+    const result = await db.order.createMany({
+      data: normalizedOrders,
     })
 
-    return NextResponse.json({
-      success: true,
-      count: createdOrders.count
-    }, { status: 201 })
+    return NextResponse.json({ success: true, count: result.count }, { status: 201 })
   } catch (error) {
-    console.error('Error creating orders:', error)
-    return NextResponse.json(
-      { error: 'Failed to create orders' },
-      { status: 500 }
-    )
+    console.error('提交运单失败', error)
+    return NextResponse.json({ error: '提交运单失败' }, { status: 500 })
+  }
+}
+
+function validateOrderPayload(orders: Array<OrderRecord & { ruleId?: string }>) {
+  return orders.flatMap((order, index) => {
+    const row = index + 1
+    const errors: Array<{ row: number; field: string; message: string }> = []
+
+    if (!order.skuCode) {
+      errors.push({ row, field: 'skuCode', message: 'SKU物品编码必填' })
+    }
+    if (!order.skuName) {
+      errors.push({ row, field: 'skuName', message: 'SKU物品名称必填' })
+    }
+    if (!Number.isFinite(order.skuQuantity) || order.skuQuantity <= 0) {
+      errors.push({ row, field: 'skuQuantity', message: 'SKU发货数量必须为正数' })
+    }
+
+    const hasGroupA = Boolean(order.storeName)
+    const hasGroupB = Boolean(order.recipientName && order.recipientPhone && order.recipientAddress)
+    if (!hasGroupA && !hasGroupB) {
+      errors.push({ row, field: 'recipientGroup', message: '收货门店或收件人信息至少填写一组' })
+    }
+
+    return errors
+  })
+}
+
+function serializeOrder(order: Awaited<ReturnType<typeof db.order.findMany>>[number]): OrderRecord {
+  return {
+    id: order.id,
+    externalCode: order.externalCode ?? '',
+    storeName: order.storeName ?? '',
+    recipientName: order.recipientName ?? '',
+    recipientPhone: order.recipientPhone ?? '',
+    recipientAddress: order.recipientAddress ?? '',
+    skuCode: order.skuCode,
+    skuName: order.skuName,
+    skuQuantity: order.skuQuantity,
+    skuSpec: order.skuSpec ?? '',
+    remark: order.remark ?? '',
+    ruleId: order.ruleId ?? '',
+    createdAt: order.createdAt.toISOString(),
   }
 }

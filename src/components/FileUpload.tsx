@@ -1,96 +1,121 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, FileSpreadsheet, FileText, File, X } from 'lucide-react'
+import { FileSpreadsheet, FileText, LoaderCircle, PackageOpen, UploadCloud, XCircle } from 'lucide-react'
+import { ACCEPTED_FILE_TYPES } from '@/lib/file'
 
 interface FileUploadProps {
-  onFileSelect: (file: File) => void
-  accept?: Record<string, string[]>
-  maxSize?: number
+  file: File | null
+  progress: number
+  busy?: boolean
+  onFileSelect: (file: File | null) => void
 }
 
-export default function FileUpload({ onFileSelect, accept, maxSize = 10 * 1024 * 1024 }: FileUploadProps) {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
-
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    if (acceptedFiles.length > 0) {
-      setSelectedFile(acceptedFiles[0])
-      onFileSelect(acceptedFiles[0])
-    }
-  }, [onFileSelect])
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: accept || {
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-      'application/vnd.ms-excel': ['.xls'],
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-      'application/pdf': ['.pdf']
+export default function FileUpload({ file, progress, busy, onFileSelect }: FileUploadProps) {
+  const onDrop = useCallback(
+    (acceptedFiles: File[]) => {
+      onFileSelect(acceptedFiles[0] ?? null)
     },
-    maxSize,
-    multiple: false
+    [onFileSelect],
+  )
+
+  const { getRootProps, getInputProps, isDragActive, fileRejections } = useDropzone({
+    onDrop,
+    accept: ACCEPTED_FILE_TYPES,
+    multiple: false,
+    maxSize: 25 * 1024 * 1024,
   })
 
-  const getFileIcon = (fileName: string) => {
-    if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
-      return <FileSpreadsheet className="w-8 h-8 text-green-500" />
+  const rejectionMessage = useMemo(() => {
+    const first = fileRejections[0]
+    if (!first) {
+      return ''
     }
-    if (fileName.endsWith('.docx')) {
-      return <FileText className="w-8 h-8 text-blue-500" />
-    }
-    if (fileName.endsWith('.pdf')) {
-      return <File className="w-8 h-8 text-red-500" />
-    }
-    return <File className="w-8 h-8 text-gray-500" />
-  }
 
-  const removeFile = () => {
-    setSelectedFile(null)
-  }
+    return first.errors[0]?.message ?? '文件格式或大小不符合要求'
+  }, [fileRejections])
 
   return (
-    <div className="w-full">
-      {selectedFile ? (
-        <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {getFileIcon(selectedFile.name)}
-            <div>
-              <p className="font-medium text-gray-900">{selectedFile.name}</p>
-              <p className="text-sm text-gray-500">
-                {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={removeFile}
-            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
+    <div className="ui-card" id="file-import">
+      <div className="ui-card-header">
+        <div>
+          <div className="ui-title">上传源文件</div>
+          <p className="ui-subtitle mt-1">支持 Excel、Word、PDF。解析过程完全由规则配置驱动。</p>
         </div>
-      ) : (
+        {busy ? (
+          <div className="flex items-center gap-2 rounded-full bg-cyan-50 px-3 py-2 text-sm text-cyan-700">
+            <LoaderCircle className="h-4 w-4 animate-spin" />
+            <span>处理中</span>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="ui-card-body space-y-4">
         <div
           {...getRootProps()}
-          className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+          className={`rounded-[28px] border border-dashed px-6 py-10 text-center transition ${
             isDragActive
-              ? 'border-[#0fc6c2] bg-[#0fc6c2]/5'
-              : 'border-gray-300 hover:border-[#0fc6c2] hover:bg-gray-50'
+              ? 'border-cyan-400 bg-cyan-50/70'
+              : 'border-cyan-100 bg-[rgba(248,255,255,0.94)] hover:border-cyan-300 hover:bg-cyan-50/70'
           }`}
         >
           <input {...getInputProps()} />
-          <Upload className={`w-12 h-12 mx-auto mb-4 ${isDragActive ? 'text-[#0fc6c2]' : 'text-gray-400'}`} />
-          <p className="text-lg font-medium text-gray-900 mb-2">
-            {isDragActive ? '释放文件到此处' : '拖拽文件到此处或点击上传'}
-          </p>
-          <p className="text-sm text-gray-500">
-            支持 Excel (.xlsx, .xls)、Word (.docx)、PDF 格式
-          </p>
-          <p className="text-xs text-gray-400 mt-2">
-            最大文件大小: 10MB
-          </p>
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-cyan-100 text-cyan-700">
+            <UploadCloud className="h-8 w-8" />
+          </div>
+          <div className="mt-4 text-lg font-semibold text-slate-900">
+            {isDragActive ? '释放文件后开始加载' : '拖拽文件到此处，或点击选择文件'}
+          </div>
+          <p className="mt-2 text-sm text-slate-500">允许格式：`.xlsx`、`.xls`、`.docx`、`.pdf`，单文件不超过 25MB</p>
         </div>
-      )}
+
+        {rejectionMessage ? (
+          <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">{rejectionMessage}</div>
+        ) : null}
+
+        {file ? (
+          <div className="rounded-[28px] border border-cyan-100 bg-white/86 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-cyan-50 text-cyan-700">
+                  {file.name.toLowerCase().endsWith('.docx') ? (
+                    <FileText className="h-7 w-7" />
+                  ) : file.name.toLowerCase().endsWith('.pdf') ? (
+                    <PackageOpen className="h-7 w-7" />
+                  ) : (
+                    <FileSpreadsheet className="h-7 w-7" />
+                  )}
+                </div>
+                <div>
+                  <div className="font-medium text-slate-900">{file.name}</div>
+                  <div className="mt-1 text-sm text-slate-500">
+                    {(file.size / 1024 / 1024).toFixed(2)} MB
+                  </div>
+                </div>
+              </div>
+
+              <button type="button" className="ui-button ui-button-danger" onClick={() => onFileSelect(null)}>
+                <XCircle className="h-4 w-4" />
+                清除文件
+              </button>
+            </div>
+
+            <div className="mt-4">
+              <div className="mb-2 flex items-center justify-between text-xs font-medium text-slate-500">
+                <span>上传与解析进度</span>
+                <span>{Math.min(100, Math.max(0, progress))}%</span>
+              </div>
+              <div className="h-3 overflow-hidden rounded-full bg-cyan-50">
+                <div
+                  className="h-full rounded-full bg-[linear-gradient(90deg,var(--primary),#69ddd8)] transition-all duration-300"
+                  style={{ width: `${Math.min(100, Math.max(2, progress || 2))}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }
