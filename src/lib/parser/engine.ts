@@ -100,7 +100,7 @@ function parseGridSource(sheets: GridSheet[], rule: ParseRule): OrderRecord[] {
   const records = rawRows
     .filter((row) => row.cells.some((cell) => normalizeCellValue(cell) !== ''))
     .map((row) => mapGridRowToRecord(row, sheets.find((sheet) => sheet.sheetName === row.sheetName), rule))
-    .filter((record) => Object.values(record).some((value) => normalizeCellValue(value) !== '' && value !== 0))
+    .filter((record) => isValidDataRow(record))
     .map((record) => toSafeOrderRecord(record))
 
   return appendGridFooterInfo(records, sheets, rule)
@@ -115,6 +115,36 @@ function parseTextSource(blocks: TextBlock[], rule: ParseRule): OrderRecord[] {
     .map((block) => mapTextBlockToRecord(block, rule))
     .filter((record) => Object.values(record).some((value) => normalizeCellValue(value) !== '' && value !== 0))
     .map((record) => toSafeOrderRecord(record))
+}
+
+// 验证是否为有效数据行
+function isValidDataRow(record: Partial<OrderRecord>): boolean {
+  // 跳过合计行、汇总行等非数据行
+  const summaryPatterns = ['合计', '总计', '小计', '汇总', '合计数', '总计数']
+  const firstValue = normalizeCellValue(record.skuCode || record.externalCode || '')
+  if (summaryPatterns.some(pattern => firstValue.includes(pattern))) {
+    return false
+  }
+
+  // 至少要有 skuCode 或 skuName 才算有效行
+  const hasSkuCode = normalizeCellValue(record.skuCode) !== ''
+  const hasSkuName = normalizeCellValue(record.skuName) !== ''
+  if (!hasSkuCode && !hasSkuName) {
+    return false
+  }
+
+  // 如果 skuCode 或 skuName 是明显的非数据内容，跳过
+  const nonDataPatterns = ['单据', '电话', '地址', '收货人', '备注', '签字', '创建', '操作', '复审', '状态']
+  const codeValue = normalizeCellValue(record.skuCode)
+  const nameValue = normalizeCellValue(record.skuName)
+  if (hasSkuCode && nonDataPatterns.some(pattern => codeValue.includes(pattern))) {
+    return false
+  }
+  if (hasSkuName && nonDataPatterns.some(pattern => nameValue.includes(pattern))) {
+    return false
+  }
+
+  return true
 }
 
 function mapGridRowToRecord(row: RawRow, sheet: GridSheet | undefined, rule: ParseRule): Partial<OrderRecord> {

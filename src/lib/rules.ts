@@ -161,7 +161,12 @@ function withRuleDefaults(ruleJson: ParseRuleConfig): ParseRuleConfig {
   const matrixTranspose = {
     enabled: ruleJson.matrixTranspose?.enabled ?? base.matrixTranspose!.enabled,
     storeColumnIndex: ruleJson.matrixTranspose?.storeColumnIndex ?? base.matrixTranspose!.storeColumnIndex,
+    storeRowIndex: ruleJson.matrixTranspose?.storeRowIndex ?? base.matrixTranspose!.storeRowIndex,
+    skuCodeColumnIndex: ruleJson.matrixTranspose?.skuCodeColumnIndex ?? base.matrixTranspose!.skuCodeColumnIndex,
+    skuNameColumnIndex: ruleJson.matrixTranspose?.skuNameColumnIndex ?? base.matrixTranspose!.skuNameColumnIndex,
+    skuSpecColumnIndex: ruleJson.matrixTranspose?.skuSpecColumnIndex ?? base.matrixTranspose!.skuSpecColumnIndex,
     startColumnIndex: ruleJson.matrixTranspose?.startColumnIndex ?? base.matrixTranspose!.startColumnIndex,
+    endColumnIndex: ruleJson.matrixTranspose?.endColumnIndex ?? base.matrixTranspose!.endColumnIndex,
     startRowIndex: ruleJson.matrixTranspose?.startRowIndex ?? base.matrixTranspose!.startRowIndex,
     quantityPattern: ruleJson.matrixTranspose?.quantityPattern ?? base.matrixTranspose!.quantityPattern,
     skipEmpty: ruleJson.matrixTranspose?.skipEmpty ?? base.matrixTranspose!.skipEmpty,
