@@ -79,8 +79,8 @@ export function parseStoredRule(rule: {
   description: string | null
   fileType: string
   ruleJson: string
-  createdAt: Date
-  updatedAt: Date
+  createdAt: Date | string
+  updatedAt: Date | string
 }): ParseRule {
   const parsed = parseRuleConfig(rule.ruleJson)
 
@@ -90,8 +90,8 @@ export function parseStoredRule(rule: {
     description: rule.description ?? '',
     fileType: normalizeFileType(rule.fileType),
     ruleJson: parsed,
-    createdAt: rule.createdAt.toISOString(),
-    updatedAt: rule.updatedAt.toISOString(),
+    createdAt: rule.createdAt instanceof Date ? rule.createdAt.toISOString() : String(rule.createdAt),
+    updatedAt: rule.updatedAt instanceof Date ? rule.updatedAt.toISOString() : String(rule.updatedAt),
   }
 }
 

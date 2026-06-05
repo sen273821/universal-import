@@ -113,7 +113,16 @@ export default function Home() {
       const res = await fetch('/api/rules')
       if (!res.ok) throw new Error('加载规则失败')
       const data = await res.json()
-      setRules(Array.isArray(data) ? data.map(normalizeIncomingRule) : [])
+      // API already returns parsed ruleJson as object, just ensure types
+      setRules(Array.isArray(data) ? data.map((r: any) => ({
+        id: r.id,
+        name: r.name?.trim() || '未命名规则',
+        description: r.description?.trim() || '',
+        fileType: r.fileType === 'word' || r.fileType === 'pdf' ? r.fileType : 'excel',
+        ruleJson: r.ruleJson,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      } as ParseRule)) : [])
     } catch (err) {
       console.error('加载规则列表失败:', err)
       pushToast('加载规则失败', (err as Error).message, 'error')
