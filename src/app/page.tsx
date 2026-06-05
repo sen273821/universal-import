@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { FileSpreadsheet, List, Upload } from 'lucide-react'
+import { Upload, List } from 'lucide-react'
 
 import FileUpload from '@/components/FileUpload'
 import RuleEditor from '@/components/RuleEditor'
@@ -89,7 +89,6 @@ export default function Home() {
   /* ─────────────── Hash 路由 ─────────────── */
 
   useEffect(() => {
-    // 初始化时读取 hash
     setActiveTab(tabFromHash(window.location.hash))
 
     const onHash = () => setActiveTab(tabFromHash(window.location.hash))
@@ -128,7 +127,6 @@ export default function Home() {
   const handleFileSelect = useCallback(
     (f: File | null) => {
       setFile(f)
-      // 文件变更时清空之前的解析结果
       setParsedData([])
       setErrors([])
       setProgress(0)
@@ -179,7 +177,6 @@ export default function Home() {
   }, [])
 
   const handleRuleSelect = useCallback((rule: ParseRule) => {
-    // Create a new object to ensure reference changes and useEffect triggers
     setCurrentRule({ ...rule, ruleJson: { ...rule.ruleJson } })
     setAiSummary(null)
   }, [])
@@ -204,7 +201,6 @@ export default function Home() {
         }
 
         const saved: ParseRule = normalizeIncomingRule(await res.json())
-        // 更新列表：已存在则替换，否则追加
         setRules((prev) => {
           const idx = prev.findIndex((r) => r.id === saved.id)
           if (idx >= 0) {
@@ -234,7 +230,6 @@ export default function Home() {
         }
 
         setRules((prev) => prev.filter((r) => r.id !== ruleId))
-        // 如果删除的是当前选中的规则，清空选中
         setCurrentRule((prev) => (prev?.id === ruleId ? null : prev))
         pushToast('规则已删除', undefined, 'success')
       } catch (err) {
@@ -273,7 +268,6 @@ export default function Home() {
     setProgress(0)
 
     try {
-      // 模拟进度动画
       const timer = setInterval(() => {
         setProgress((prev) => Math.min(prev + 8, 90))
       }, 120)
@@ -335,7 +329,6 @@ export default function Home() {
       pushToast('提交成功', `成功导入 ${body.count} 条运单`, 'success')
       setParsedData([])
       setErrors([])
-      // 切换到订单列表并刷新
       setOrderReloadToken((t) => t + 1)
       switchTab('orders')
     } catch (err) {
@@ -386,44 +379,24 @@ export default function Home() {
   /* ─────────────── 渲染 ─────────────── */
 
   return (
-    <div className="ui-page min-h-screen bg-gray-50">
-      {/* 顶部导航 */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            {/* Logo */}
-            <div className="flex items-center gap-3">
-              <FileSpreadsheet className="h-6 w-6 text-[var(--primary)]" />
-              <div>
-                <h1 className="text-xl font-bold text-[var(--primary)]">万能导入 V2</h1>
-                <span className="hidden sm:inline text-xs text-gray-400">智能多格式批量下单系统</span>
-              </div>
-            </div>
-
-            {/* Tab 导航 */}
-            <nav className="flex gap-2">
-              {TABS.map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => switchTab(tab.key)}
-                  className={`px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition ${
-                    activeTab === tab.key
-                      ? 'bg-[var(--primary)] text-white shadow-sm'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {tab.icon}
-                  {tab.label}
-                </button>
-              ))}
-            </nav>
-          </div>
-        </div>
-      </header>
+    <>
+      {/* 标签页栏 - 鲸天系统风格 */}
+      <div className="ui-tabs-bar">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => switchTab(tab.key)}
+            className={`ui-tab-item flex items-center gap-2 ${activeTab === tab.key ? 'active' : ''}`}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
       {/* 主内容 */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="ui-page">
         {activeTab === 'import' ? (
           <div className="space-y-6">
             {/* 第一行：文件上传 + 规则编辑 */}
@@ -464,13 +437,12 @@ export default function Home() {
             )}
           </div>
         ) : (
-          /* 订单历史列表 */
           <OrderList onExport={handleExport} />
         )}
-      </main>
+      </div>
 
       {/* 全局 Toast 通知 */}
       <ToastStack toasts={toasts} onRemove={removeToast} />
-    </div>
+    </>
   )
 }

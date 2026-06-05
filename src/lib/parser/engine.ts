@@ -9,7 +9,6 @@ import type {
   TextMappingRule,
 } from '@/types'
 import { parseExcel } from './excel'
-import { parsePDF } from './pdf'
 import {
   collectFooterText,
   detectHeaderIndex,
@@ -23,7 +22,6 @@ import {
   toSafeOrderRecord,
   validateOrders,
 } from './utils'
-import { parseWord } from './word'
 
 type SourcePayload =
   | { kind: 'grid'; sheets: GridSheet[] }
@@ -72,10 +70,14 @@ async function readByFileType(file: File, rule: ParseRule): Promise<SourcePayloa
   switch (rule.fileType) {
     case 'excel':
       return { kind: 'grid', sheets: await parseExcel(file, rule) }
-    case 'word':
+    case 'word': {
+      const { parseWord } = await import('./word')
       return { kind: 'text', blocks: await parseWord(file, rule) }
-    case 'pdf':
+    }
+    case 'pdf': {
+      const { parsePDF } = await import('./pdf')
       return { kind: 'text', blocks: await parsePDF(file, rule) }
+    }
     default:
       throw new Error(`不支持的文件类型：${rule.fileType}`)
   }
