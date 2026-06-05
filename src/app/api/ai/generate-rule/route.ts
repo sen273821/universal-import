@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { generateRuleWithAI } from '@/lib/ai/rule-generator'
-import { extractFileText } from '@/lib/parser/file-text'
+import * as XLSX from 'xlsx'
+import { analyzeExcelBuffer, analyzeTextContent } from '@/lib/ai/local-analyzer'
 import type { ParserFileType } from '@/types'
 
 export async function POST(request: NextRequest) {
@@ -17,14 +17,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '文件类型不正确' }, { status: 400 })
     }
 
-    const fileContent = await extractFileText(file, fileType)
-    const suggestion = await generateRuleWithAI(fileContent, fileType, file.name)
+    let suggestion
+
+    if (fileType === 'excel') {
+      // Excel: 读取 buffer 进行本地分析
+      const buffer = await file.arrayBuffer()
+      suggestion = analyzeExcelBuffer(buffer, file.name)
+    } else {
+      // Word/PDF: 提取文本进行本地分析
+      const { extractFileText } = await import('@/lib/parser/file-text')
+      const text = await extractFileText(file, fileType)
+      suggestion = analyzeTextContent(text, fileType, file.name)
+    }
 
     return NextResponse.json(suggestion)
   } catch (error) {
-    console.error('AI 规则生成失败', error)
+    console.error('规则生成失败', error)
     return NextResponse.json(
-      { error: `AI 规则生成失败: ${error instanceof Error ? error.message : String(error)}` },
+      { error: `规则生成失败: ${error instanceof Error ? error.message : String(error)}` },
       { status: 500 },
     )
   }

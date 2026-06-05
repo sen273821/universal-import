@@ -98,10 +98,10 @@ export default function Home() {
     setProgress(0)
   }, [])
 
-  /* ─── AI 生成规则 ─── */
-  const handleGenerateAI = useCallback(async () => {
+  /* ─── 智能生成规则 ─── */
+  const handleGenerateRule = useCallback(async () => {
     if (!file) {
-      pushToast('请先上传文件', '需要先选择一个文件再让 AI 生成规则', 'error')
+      pushToast('请先上传文件', '需要先选择一个文件再生成规则', 'error')
       return
     }
     setIsGenerating(true)
@@ -112,13 +112,13 @@ export default function Home() {
       formData.append('fileType', inferFileType(file))
       const res = await fetch('/api/ai/generate-rule', { method: 'POST', body: formData })
       const body = await res.json()
-      if (!res.ok) throw new Error(body.error || 'AI 生成规则失败')
+      if (!res.ok) throw new Error(body.error || '生成规则失败')
       const suggestion: AIRuleSuggestion = body
       setCurrentRule(normalizeIncomingRule(suggestion.rule))
       setAiSummary(suggestion)
-      pushToast('AI 规则已生成', `置信度 ${Math.round(suggestion.confidence * 100)}%，请确认后再保存`, 'success')
+      pushToast('规则已生成', `匹配度 ${Math.round(suggestion.confidence * 100)}%，请确认后保存`, 'success')
     } catch (err) {
-      pushToast('AI 生成失败', (err as Error).message, 'error')
+      pushToast('生成规则失败', (err as Error).message, 'error')
     } finally {
       setIsGenerating(false)
       setFileBusy(false)
@@ -260,7 +260,7 @@ export default function Home() {
             rules={rules} currentRule={currentRule} aiSummary={aiSummary}
             isGenerating={isGenerating} isTesting={isTesting}
             parsedData={parsedData} errors={errors} submitting={submitting}
-            onFileSelect={handleFileSelect} onGenerateAI={handleGenerateAI}
+            onFileSelect={handleFileSelect} onGenerateRule={handleGenerateRule}
             onRuleChange={handleRuleChange} onRuleSelect={handleRuleSelect}
             onRuleCreate={handleRuleCreate} onRuleSave={handleRuleSave}
             onRuleDelete={handleRuleDelete} onRuleDuplicate={handleRuleDuplicate}

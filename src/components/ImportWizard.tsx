@@ -66,7 +66,7 @@ interface Props {
   errors: any[]
   submitting: boolean
   onFileSelect: (f: File | null) => void
-  onGenerateAI: () => void
+  onGenerateRule: () => void
   onRuleChange: (rule: ParseRule) => void
   onRuleSelect: (rule: ParseRule) => void
   onRuleCreate: (rule: ParseRule) => void
@@ -84,7 +84,7 @@ interface Props {
 export default function ImportWizard({
   file, progress, fileBusy, rules, currentRule, aiSummary,
   isGenerating, isTesting, parsedData, errors, submitting,
-  onFileSelect, onGenerateAI, onRuleChange, onRuleSelect,
+  onFileSelect, onGenerateRule, onRuleChange, onRuleSelect,
   onRuleCreate, onRuleSave, onRuleDelete, onRuleDuplicate,
   onTest, onSubmit, onExport, onDataChange,
 }: Props) {
@@ -250,36 +250,36 @@ export default function ImportWizard({
 
   const renderStrategy = () => (
     <div className="max-w-2xl mx-auto space-y-6">
-      {/* AI 快速生成 */}
+      {/* 智能分析 */}
       <div className="rounded-lg border-2 border-[var(--primary)] bg-[var(--primary-soft)] p-6">
         <div className="flex items-center gap-3 mb-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--primary)] text-white">
             <Sparkles className="h-5 w-5" />
           </div>
           <div>
-            <div className="font-semibold text-[var(--text)]">AI 智能识别</div>
-            <div className="text-sm text-[var(--text-muted)]">自动分析文件结构，生成解析规则</div>
+            <div className="font-semibold text-[var(--text)]">智能识别</div>
+            <div className="text-sm text-[var(--text-muted)]">自动分析文件结构，匹配表头关键字生成规则</div>
           </div>
         </div>
         <button
           type="button"
           className="ui-button ui-button-primary w-full justify-center"
-          onClick={onGenerateAI}
+          onClick={onGenerateRule}
           disabled={isGenerating || !file}
         >
           {isGenerating ? (
-            <><LoaderCircle className="h-4 w-4 animate-spin" /> AI 分析中...</>
+            <><LoaderCircle className="h-4 w-4 animate-spin" /> 分析中...</>
           ) : (
-            <><Sparkles className="h-4 w-4" /> 一键 AI 生成规则</>
+            <><Sparkles className="h-4 w-4" /> 一键智能生成规则</>
           )}
         </button>
         {aiSummary && (
           <div className="mt-4 rounded-lg bg-white p-4 text-sm">
             <div className="flex items-center gap-2 mb-2">
               <Bot className="h-4 w-4 text-[var(--primary)]" />
-              <span className="font-medium">AI 分析结果</span>
+              <span className="font-medium">分析结果</span>
               <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-[var(--primary-soft)] text-[var(--primary)]">
-                置信度 {Math.round(aiSummary.confidence * 100)}%
+                匹配度 {Math.round(aiSummary.confidence * 100)}%
               </span>
             </div>
             <p className="text-[var(--text-muted)]">{aiSummary.explanation}</p>
