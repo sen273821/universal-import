@@ -86,14 +86,25 @@ export function extractFooterLabels(rows: string[][], labels: string[]): string 
     return ''
   }
 
-  const escaped = labels.map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-  const regex = new RegExp(`(?:${escaped.join('|')})[：: ]*([^\\s].*?)$`, 'i')
-
   for (const row of rows) {
-    const rowText = row.filter(Boolean).join(' ')
-    const matched = rowText.match(regex)
-    if (matched) {
-      return normalizeCellValue(matched[1])
+    for (let i = 0; i < row.length; i++) {
+      const cell = normalizeCellValue(row[i])
+      const isLabel = labels.some((label) => cell.includes(label))
+      if (isLabel) {
+        // Look for value in the next non-empty cell
+        for (let j = i + 1; j < row.length; j++) {
+          const nextCell = normalizeCellValue(row[j])
+          if (nextCell) {
+            // Check if next cell is another label
+            const isNextLabel = ['收货人', '收货电话', '收货地址', '收货机构', '备注', '备用', '联系电话', '联系人'].some(
+              (l) => nextCell.includes(l),
+            )
+            if (!isNextLabel) {
+              return nextCell
+            }
+          }
+        }
+      }
     }
   }
 
