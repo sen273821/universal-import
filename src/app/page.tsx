@@ -113,21 +113,11 @@ export default function Home() {
       const res = await fetch('/api/rules')
       if (!res.ok) throw new Error('加载规则失败')
       const data = await res.json()
-      // API already returns parsed ruleJson as object, just ensure types
-      setRules(Array.isArray(data) ? data.map((r: any) => ({
-        id: r.id,
-        name: r.name?.trim() || '未命名规则',
-        description: r.description?.trim() || '',
-        fileType: r.fileType === 'word' || r.fileType === 'pdf' ? r.fileType : 'excel',
-        ruleJson: r.ruleJson,
-        createdAt: r.createdAt,
-        updatedAt: r.updatedAt,
-      } as ParseRule)) : [])
+      setRules(Array.isArray(data) ? data.map((r: any) => normalizeIncomingRule(r)) : [])
     } catch (err) {
       console.error('加载规则列表失败:', err)
-      pushToast('加载规则失败', (err as Error).message, 'error')
     }
-  }, [pushToast])
+  }, [])
 
   useEffect(() => {
     loadRules()
@@ -189,7 +179,8 @@ export default function Home() {
   }, [])
 
   const handleRuleSelect = useCallback((rule: ParseRule) => {
-    setCurrentRule(rule)
+    // Create a new object to ensure reference changes and useEffect triggers
+    setCurrentRule({ ...rule, ruleJson: { ...rule.ruleJson } })
     setAiSummary(null)
   }, [])
 
