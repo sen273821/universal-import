@@ -202,7 +202,9 @@ export default function Home() {
     if (parsedData.length === 0) { pushToast('没有可提交的数据', undefined, 'error'); return }
     setSubmitting(true)
     try {
-      const res = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orders: parsedData, ruleId: currentRule?.id }) })
+      // 只传递有效的规则ID（非draft开头的UUID）
+      const validRuleId = currentRule?.id && !currentRule.id.startsWith('draft-') ? currentRule.id : undefined
+      const res = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orders: parsedData, ruleId: validRuleId }) })
       const body = await res.json()
       if (!res.ok) throw new Error(body.error || '提交失败')
       pushToast('提交成功', `成功导入 ${body.count} 条运单`, 'success')
