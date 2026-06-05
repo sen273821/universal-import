@@ -1,26 +1,130 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --primary-color: #0fc6c2;
+  --primary-hover: #0db5b1;
+  --primary-light: #0fc6c2/10;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+  color: #1d2129;
+  background: #f7f8fa;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+
+/* 表格固定表头 */
+.table-fixed-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: white;
+}
+
+/* 进度条动画 */
+@keyframes progress {
+  0% { width: 0%; }
+  100% { width: 100%; }
+}
+
+.progress-bar {
+  animation: progress 2s ease-in-out;
+}
+
+/* Toast 动画 */
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideOut {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(100%); opacity: 0; }
+}
+
+.toast-enter {
+  animation: slideIn 0.3s ease-out;
+}
+
+.toast-exit {
+  animation: slideOut 0.3s ease-in;
+}
+
+/* 加载动画 */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* 输入框焦点 */
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  ring: 2px;
+  ring-color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+/* 按钮悬停效果 */
+button:hover {
+  transition: all 0.2s ease;
+}
+
+/* 卡片悬停效果 */
+.card-hover:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+  transition: all 0.2s ease;
+}
+
+/* 表格行悬停 */
+tr:hover td {
+  background-color: #f9fafb;
+}
+
+/* 响应式表格 */
+.table-responsive {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 空状态 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  color: #9ca3af;
+}
+
+.empty-state svg {
+  width: 4rem;
+  height: 4rem;
+  margin-bottom: 1rem;
 }
