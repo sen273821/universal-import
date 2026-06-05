@@ -265,7 +265,7 @@ export default function Home() {
             onRuleCreate={handleRuleCreate} onRuleSave={handleRuleSave}
             onRuleDelete={handleRuleDelete} onRuleDuplicate={handleRuleDuplicate}
             onTest={handleTest} onSubmit={handleSubmit} onExport={handleExport}
-            onDataChange={setParsedData}
+            onDataChange={setParsedData} onErrorsChange={setErrors}
           />
         ) : (
           <OrderList onExport={handleExport} />

@@ -21,11 +21,15 @@ import {
   ChevronDown,
   ChevronUp,
   Settings2,
+  RefreshCw,
+  Wand2,
+  AlertTriangle,
 } from 'lucide-react'
 import { useDropzone } from 'react-dropzone'
-import { ORDER_FIELDS, type OrderField, type ParseRule } from '@/types'
+import { ORDER_FIELDS, type OrderField, type OrderRecord, type ParseRule, type ValidationError } from '@/types'
 import { createEmptyRule } from '@/lib/rules'
 import { ACCEPTED_FILE_TYPES } from '@/lib/file'
+import { validateOrders } from '@/lib/parser/utils'
 
 /* ─────────────── 步骤定义 ─────────────── */
 
@@ -51,6 +55,13 @@ function uid(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 9)
 }
 
+/** 生成外部单号 */
+function generateExternalCode(index: number): string {
+  const timestamp = Date.now().toString(36).toUpperCase()
+  const seq = (index + 1).toString().padStart(4, '0')
+  return `IMP${timestamp}${seq}`
+}
+
 /* ─────────────── Props ─────────────── */
 
 interface Props {
@@ -62,8 +73,8 @@ interface Props {
   aiSummary: { confidence: number; explanation: string; assumptions: string[] } | null
   isGenerating: boolean
   isTesting: boolean
-  parsedData: any[]
-  errors: any[]
+  parsedData: OrderRecord[]
+  errors: ValidationError[]
   submitting: boolean
   onFileSelect: (f: File | null) => void
   onGenerateRule: () => void
@@ -76,7 +87,8 @@ interface Props {
   onTest: () => void
   onSubmit: () => void
   onExport: () => void
-  onDataChange: (data: any[]) => void
+  onDataChange: (data: OrderRecord[]) => void
+  onErrorsChange: (errors: ValidationError[]) => void
 }
 
 /* ─────────────── 主组件 ─────────────── */
@@ -86,7 +98,7 @@ export default function ImportWizard({
   isGenerating, isTesting, parsedData, errors, submitting,
   onFileSelect, onGenerateRule, onRuleChange, onRuleSelect,
   onRuleCreate, onRuleSave, onRuleDelete, onRuleDuplicate,
-  onTest, onSubmit, onExport, onDataChange,
+  onTest, onSubmit, onExport, onDataChange, onErrorsChange,
 }: Props) {
   const [step, setStep] = useState<Step>('upload')
   const [draft, setDraft] = useState<ParseRule>(currentRule ?? createEmptyRule())
@@ -157,6 +169,60 @@ export default function ImportWizard({
   )
 
   const FIELD_OPTIONS = ORDER_FIELDS.map((f) => ({ value: f, label: f }))
+
+  /* ─── 预览步骤功能函数 ─── */
+
+  /** 自动生成外部单号（为空的行） */
+  const handleAutoGenerateCodes = useCallback(() => {
+    let count = 0
+    const updated = parsedData.map((row, i) => {
+      if (!row.externalCode || row.externalCode.trim() === '') {
+        count++
+        return { ...row, externalCode: generateExternalCode(i) }
+      }
+      return row
+    })
+    if (count > 0) {
+      onDataChange(updated)
+      // 重新校验
+      const newErrors = validateOrders(updated)
+      onErrorsChange(newErrors)
+    }
+  }, [parsedData, onDataChange, onErrorsChange])
+
+  /** 删除所有校验失败的行 */
+  const handleRemoveErrorRows = useCallback(() => {
+    if (errors.length === 0) return
+    // 收集有错误的行索引（1-based 转 0-based）
+    const errorRowIndices = new Set(errors.map((e) => e.row - 1))
+    const filtered = parsedData.filter((_, i) => !errorRowIndices.has(i))
+    onDataChange(filtered)
+    // 重新校验
+    const newErrors = validateOrders(filtered)
+    onErrorsChange(newErrors)
+  }, [parsedData, errors, onDataChange, onErrorsChange])
+
+  /** 重新校验所有数据 */
+  const handleRevalidate = useCallback(() => {
+    const newErrors = validateOrders(parsedData)
+    onErrorsChange(newErrors)
+  }, [parsedData, onErrorsChange])
+
+  /** 编辑单元格 */
+  const handleCellEdit = useCallback((rowIndex: number, field: keyof OrderRecord, value: string | number) => {
+    const updated = [...parsedData]
+    updated[rowIndex] = { ...updated[rowIndex], [field]: value }
+    onDataChange(updated)
+  }, [parsedData, onDataChange])
+
+  /** 删除单行 */
+  const handleDeleteRow = useCallback((rowIndex: number) => {
+    const filtered = parsedData.filter((_, i) => i !== rowIndex)
+    onDataChange(filtered)
+    // 重新校验
+    const newErrors = validateOrders(filtered)
+    onErrorsChange(newErrors)
+  }, [parsedData, onDataChange, onErrorsChange])
 
   /* ─────────────── 步骤渲染 ─────────────── */
 
@@ -384,7 +450,7 @@ export default function ImportWizard({
           <div className="rounded-lg border-2 border-dashed border-[var(--line)] p-8 text-center text-[var(--text-muted)]">
             <FileSpreadsheet className="h-8 w-8 mx-auto mb-2 opacity-50" />
             <div>暂无字段映射</div>
-            <div className="text-xs mt-1">点击上方"添加映射"或使用 AI 自动生成</div>
+            <div className="text-xs mt-1">点击上方"添加映射"或使用智能生成</div>
           </div>
         ) : (
           <div className="space-y-3">
@@ -457,67 +523,161 @@ export default function ImportWizard({
     </div>
   )
 
-  const renderReview = () => (
-    <div className="space-y-4">
-      {/* 操作栏 */}
-      <div className="flex items-center justify-between rounded-lg border border-[var(--line)] bg-white px-6 py-4">
-        <div>
-          <span className="text-sm text-[var(--text-muted)]">解析结果：</span>
-          <span className="font-semibold text-[var(--text)] ml-1">{parsedData.length} 条</span>
-          {errors.length > 0 && (
-            <span className="ml-3 text-sm text-[var(--warning)]">{errors.length} 个校验问题</span>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <button type="button" className="ui-button ui-button-secondary" onClick={onExport}>导出 Excel</button>
-          <button type="button" className="ui-button ui-button-primary" onClick={onSubmit} disabled={submitting || parsedData.length === 0}>
-            {submitting ? <><LoaderCircle className="h-4 w-4 animate-spin" /> 提交中</> : '提交运单'}
-          </button>
-        </div>
-      </div>
+  const renderReview = () => {
+    const errorRowIndices = new Set(errors.map((e) => e.row - 1))
+    const emptyCodeCount = parsedData.filter((r) => !r.externalCode || r.externalCode.trim() === '').length
 
-      {/* 数据表格预览 */}
-      {parsedData.length > 0 && (
-        <div className="rounded-lg border border-[var(--line)] bg-white overflow-hidden">
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>外部单号</th>
-                  <th>门店</th>
-                  <th>收货人</th>
-                  <th>电话</th>
-                  <th>地址</th>
-                  <th>商品</th>
-                  <th>数量</th>
-                </tr>
-              </thead>
-              <tbody>
-                {parsedData.slice(0, 100).map((row, i) => (
-                  <tr key={i}>
-                    <td className="text-[var(--text-muted)]">{i + 1}</td>
-                    <td>{row.externalCode}</td>
-                    <td>{row.storeName}</td>
-                    <td>{row.recipientName}</td>
-                    <td>{row.recipientPhone}</td>
-                    <td className="max-w-[200px] truncate">{row.recipientAddress}</td>
-                    <td>{row.skuName}</td>
-                    <td>{row.skuQuantity}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {parsedData.length > 100 && (
-            <div className="px-4 py-2 text-xs text-[var(--text-muted)] text-center border-t border-[var(--line)]">
-              显示前 100 条，共 {parsedData.length} 条
+    return (
+      <div className="space-y-4">
+        {/* 操作栏 */}
+        <div className="rounded-lg border border-[var(--line)] bg-white px-6 py-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <span className="text-sm text-[var(--text-muted)]">解析结果：</span>
+              <span className="font-semibold text-[var(--text)] ml-1">{parsedData.length} 条</span>
+              {errors.length > 0 && (
+                <span className="ml-3 text-sm text-[var(--warning)]">{errors.length} 个校验问题</span>
+              )}
             </div>
-          )}
+            <div className="flex gap-2">
+              <button type="button" className="ui-button ui-button-secondary" onClick={onExport}>导出 Excel</button>
+              <button type="button" className="ui-button ui-button-primary" onClick={onSubmit} disabled={submitting || parsedData.length === 0 || errors.length > 0}>
+                {submitting ? <><LoaderCircle className="h-4 w-4 animate-spin" /> 提交中</> : '提交运单'}
+              </button>
+            </div>
+          </div>
+
+          {/* 快捷操作按钮 */}
+          <div className="flex flex-wrap gap-2">
+            {emptyCodeCount > 0 && (
+              <button type="button" className="ui-button ui-button-secondary text-sm" onClick={handleAutoGenerateCodes}>
+                <Wand2 className="h-4 w-4" />
+                自动生成外部单号 ({emptyCodeCount})
+              </button>
+            )}
+            {errors.length > 0 && (
+              <>
+                <button type="button" className="ui-button ui-button-danger text-sm" onClick={handleRemoveErrorRows}>
+                  <Trash2 className="h-4 w-4" />
+                  删除校验失败行 ({errorRowIndices.size})
+                </button>
+                <button type="button" className="ui-button ui-button-secondary text-sm" onClick={handleRevalidate}>
+                  <RefreshCw className="h-4 w-4" />
+                  重新校验
+                </button>
+              </>
+            )}
+          </div>
         </div>
-      )}
-    </div>
-  )
+
+        {/* 校验错误提示 */}
+        {errors.length > 0 && (
+          <div className="rounded-lg border border-[var(--warning)] bg-amber-50 px-4 py-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-amber-800">
+              <AlertTriangle className="h-4 w-4" />
+              有 {errors.length} 个校验问题需要处理
+            </div>
+            <div className="mt-2 max-h-[120px] overflow-y-auto space-y-1">
+              {errors.slice(0, 10).map((err, i) => (
+                <div key={i} className="text-xs text-amber-700">
+                  第 {err.row} 行 · {err.field}：{err.message}
+                </div>
+              ))}
+              {errors.length > 10 && <div className="text-xs text-amber-600">...还有 {errors.length - 10} 个问题</div>}
+            </div>
+          </div>
+        )}
+
+        {/* 数据表格预览（可编辑） */}
+        {parsedData.length > 0 && (
+          <div className="rounded-lg border border-[var(--line)] bg-white overflow-hidden">
+            <div className="ui-table-wrap max-h-[500px]">
+              <table className="ui-table">
+                <thead>
+                  <tr>
+                    <th className="w-12">#</th>
+                    <th className="w-40">外部单号</th>
+                    <th className="w-32">门店</th>
+                    <th className="w-24">收货人</th>
+                    <th className="w-32">电话</th>
+                    <th className="w-48">地址</th>
+                    <th className="w-32">商品编码</th>
+                    <th className="w-40">商品名称</th>
+                    <th className="w-20">数量</th>
+                    <th className="w-24">规格</th>
+                    <th className="w-32">备注</th>
+                    <th className="w-12">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parsedData.slice(0, 200).map((row, i) => {
+                    const hasError = errorRowIndices.has(i)
+                    return (
+                      <tr key={i} className={hasError ? 'bg-red-50' : ''}>
+                        <td className="text-[var(--text-muted)]">{i + 1}</td>
+                        <td>
+                          <input className="ui-input text-xs py-1 px-2" value={row.externalCode ?? ''} 
+                            onChange={(e) => handleCellEdit(i, 'externalCode', e.target.value)}
+                            placeholder="点击生成" />
+                        </td>
+                        <td>
+                          <input className="ui-input text-xs py-1 px-2" value={row.storeName ?? ''}
+                            onChange={(e) => handleCellEdit(i, 'storeName', e.target.value)} />
+                        </td>
+                        <td>
+                          <input className="ui-input text-xs py-1 px-2" value={row.recipientName ?? ''}
+                            onChange={(e) => handleCellEdit(i, 'recipientName', e.target.value)} />
+                        </td>
+                        <td>
+                          <input className="ui-input text-xs py-1 px-2" value={row.recipientPhone ?? ''}
+                            onChange={(e) => handleCellEdit(i, 'recipientPhone', e.target.value)} />
+                        </td>
+                        <td>
+                          <input className="ui-input text-xs py-1 px-2" value={row.recipientAddress ?? ''}
+                            onChange={(e) => handleCellEdit(i, 'recipientAddress', e.target.value)} />
+                        </td>
+                        <td>
+                          <input className="ui-input text-xs py-1 px-2" value={row.skuCode ?? ''}
+                            onChange={(e) => handleCellEdit(i, 'skuCode', e.target.value)} />
+                        </td>
+                        <td>
+                          <input className="ui-input text-xs py-1 px-2" value={row.skuName ?? ''}
+                            onChange={(e) => handleCellEdit(i, 'skuName', e.target.value)} />
+                        </td>
+                        <td>
+                          <input className="ui-input text-xs py-1 px-2" type="number" value={row.skuQuantity ?? 0}
+                            onChange={(e) => handleCellEdit(i, 'skuQuantity', parseInt(e.target.value) || 0)} />
+                        </td>
+                        <td>
+                          <input className="ui-input text-xs py-1 px-2" value={row.skuSpec ?? ''}
+                            onChange={(e) => handleCellEdit(i, 'skuSpec', e.target.value)} />
+                        </td>
+                        <td>
+                          <input className="ui-input text-xs py-1 px-2" value={row.remark ?? ''}
+                            onChange={(e) => handleCellEdit(i, 'remark', e.target.value)} />
+                        </td>
+                        <td>
+                          <button type="button" className="text-[var(--text-muted)] hover:text-[var(--danger)]"
+                            onClick={() => handleDeleteRow(i)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {parsedData.length > 200 && (
+              <div className="px-4 py-2 text-xs text-[var(--text-muted)] text-center border-t border-[var(--line)]">
+                显示前 200 条，共 {parsedData.length} 条
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   const renderStepContent = () => {
     switch (step) {
@@ -540,7 +700,6 @@ export default function ImportWizard({
               <button
                 type="button"
                 onClick={() => {
-                  // 只允许跳转到已完成或当前步骤
                   if (i <= stepIndex) setStep(s.key)
                 }}
                 className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition ${
