@@ -1,9 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { List, Upload } from 'lucide-react'
+import { FileArchive, FileText, PackageSearch } from 'lucide-react'
 
 import ImportWizard from '@/components/ImportWizard'
+import TemplateRuleManager from '@/components/TemplateRuleManager'
 import OrderList from '@/components/OrderList'
 import ToastStack, { type ToastItem } from '@/components/ToastStack'
 
@@ -25,15 +26,18 @@ function uid(): string {
 
 /* ─────────────── Tab 配置 ─────────────── */
 
-type TabKey = 'import' | 'orders'
+type TabKey = 'import' | 'templates' | 'orders'
 
 const TABS: { key: TabKey; hash: string; label: string; icon: React.ReactNode }[] = [
-  { key: 'import', hash: '#file-import', label: '文件导入', icon: <Upload className="h-4 w-4" /> },
-  { key: 'orders', hash: '#order-history', label: '已导入运单', icon: <List className="h-4 w-4" /> },
+  { key: 'import', hash: '#file-import', label: '文件导入', icon: <FileArchive className="h-4 w-4" /> },
+  { key: 'templates', hash: '#template-rules', label: '模版规则维护', icon: <FileText className="h-4 w-4" /> },
+  { key: 'orders', hash: '#order-history', label: '已导入运单', icon: <PackageSearch className="h-4 w-4" /> },
 ]
 
 function tabFromHash(hash: string): TabKey {
-  return hash === '#order-history' ? 'orders' : 'import'
+  if (hash === '#template-rules') return 'templates'
+  if (hash === '#order-history') return 'orders'
+  return 'import'
 }
 
 /* ─────────────── 页面组件 ─────────────── */
@@ -127,7 +131,17 @@ export default function Home() {
 
   /* ─── 规则 CRUD ─── */
   const handleRuleChange = useCallback((rule: ParseRule) => { setCurrentRule(rule) }, [])
-  const handleRuleSelect = useCallback((rule: ParseRule) => { setCurrentRule({ ...rule, ruleJson: { ...rule.ruleJson } }); setAiSummary(null) }, [])
+  
+  const handleRuleSelect = useCallback((rule: ParseRule) => {
+    setCurrentRule({ ...rule, ruleJson: { ...rule.ruleJson } })
+    setAiSummary(null)
+    // 如果是从模版规则页面选择的，切换到文件导入页面
+    if (activeTab === 'templates') {
+      switchTab('import')
+      pushToast('已选择规则', `规则"${rule.name}"已加载，可以开始导入文件`, 'info')
+    }
+  }, [activeTab, switchTab, pushToast])
+  
   const handleRuleCreate = useCallback((rule: ParseRule) => { setCurrentRule(rule); setAiSummary(null) }, [])
 
   const handleRuleSave = useCallback(async (rule: ParseRule) => {
@@ -202,7 +216,6 @@ export default function Home() {
     if (parsedData.length === 0) { pushToast('没有可提交的数据', undefined, 'error'); return }
     setSubmitting(true)
     try {
-      // 只传递有效的规则ID（非draft开头的UUID）
       const validRuleId = currentRule?.id && !currentRule.id.startsWith('draft-') ? currentRule.id : undefined
       const res = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orders: parsedData, ruleId: validRuleId }) })
       const body = await res.json()
@@ -256,7 +269,7 @@ export default function Home() {
 
       {/* 主内容 */}
       <div className="ui-page">
-        {activeTab === 'import' ? (
+        {activeTab === 'import' && (
           <ImportWizard
             file={file} progress={progress} fileBusy={fileBusy}
             rules={rules} currentRule={currentRule} aiSummary={aiSummary}
@@ -269,7 +282,18 @@ export default function Home() {
             onTest={handleTest} onSubmit={handleSubmit} onExport={handleExport}
             onDataChange={setParsedData} onErrorsChange={setErrors}
           />
-        ) : (
+        )}
+
+        {activeTab === 'templates' && (
+          <TemplateRuleManager
+            rules={rules}
+            onRuleSave={handleRuleSave}
+            onRuleDelete={handleRuleDelete}
+            onRuleSelect={handleRuleSelect}
+          />
+        )}
+
+        {activeTab === 'orders' && (
           <OrderList onExport={handleExport} />
         )}
       </div>

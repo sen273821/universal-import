@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { Noto_Sans_SC } from 'next/font/google'
-import { CircleUserRound } from 'lucide-react'
+import { CircleUserRound, FileArchive, FileText, PackageSearch } from 'lucide-react'
 import './globals.css'
 
 const notoSans = Noto_Sans_SC({
@@ -13,6 +14,12 @@ export const metadata: Metadata = {
   description: '智能多格式批量下单系统',
 }
 
+const navItems = [
+  { href: '#file-import', label: '文件导入', icon: FileArchive },
+  { href: '#template-rules', label: '模版规则维护', icon: FileText },
+  { href: '#order-history', label: '已导入运单', icon: PackageSearch },
+]
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -22,21 +29,41 @@ export default function RootLayout({
     <html lang="zh-CN">
       <body className={notoSans.className}>
         <div className="ui-shell">
+          {/* 深色侧边栏 - 鲸天系统风格 */}
+          <aside className="ui-sidebar">
+            <div className="ui-sidebar-logo">
+              <div className="text-center">
+                <div className="text-xs tracking-[0.2em] text-white/60">中通冷链</div>
+                <div className="text-lg font-semibold text-white">万能导入 V2</div>
+              </div>
+            </div>
+
+            <nav className="ui-sidebar-nav">
+              {navItems.map((item) => {
+                const Icon = item.icon
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="ui-sidebar-item"
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span>{item.label}</span>
+                  </Link>
+                )
+              })}
+            </nav>
+
+            <div className="border-t border-white/10 p-4">
+              <div className="text-xs text-white/50">面向物流批量下单的智能多格式解析工作台</div>
+            </div>
+          </aside>
+
           {/* 主内容区 */}
           <div className="ui-main">
             {/* 渐变顶部导航 - 鲸天系统风格 */}
             <header className="ui-topbar">
-              <div className="flex items-center gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded bg-white/20">
-                  <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                </div>
-                <div>
-                  <div className="text-sm font-medium text-white/80">中通冷链</div>
-                  <div className="text-base font-semibold text-white">万能导入 V2</div>
-                </div>
-              </div>
+              <div className="ui-topbar-title">万能导入控制台</div>
               <div className="ui-topbar-user">
                 <CircleUserRound className="h-5 w-5" />
                 <span>当前用户</span>
