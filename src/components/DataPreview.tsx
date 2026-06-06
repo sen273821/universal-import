@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { AlertTriangle, CheckSquare, Download, MinusSquare, Plus, Square, Trash2 } from 'lucide-react'
 import type { OrderField, OrderRecord, ValidationError } from '@/types'
@@ -76,6 +76,25 @@ export default function DataPreview({
 
   // 当前悬浮的错误提示（用于 tooltip）
   const [hoveredError, setHoveredError] = useState<{ rowIndex: number; field: string } | null>(null)
+
+  // 横向滚动阴影指示
+  const [showRightShadow, setShowRightShadow] = useState(false)
+
+  // 监听横向滚动，显示右侧阴影
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const check = () => {
+      setShowRightShadow(el.scrollLeft < el.scrollWidth - el.clientWidth - 10)
+    }
+    check()
+    el.addEventListener('scroll', check, { passive: true })
+    window.addEventListener('resize', check)
+    return () => {
+      el.removeEventListener('scroll', check)
+      window.removeEventListener('resize', check)
+    }
+  }, [data])
 
   // ===================== 派生数据 =====================
 
@@ -280,7 +299,7 @@ export default function DataPreview({
               <span className="text-sm">暂无数据，请上传文件或手动新增行</span>
             </div>
           ) : (
-            <div className="ui-table-wrap" ref={scrollRef}>
+            <div className={`ui-table-wrap ${showRightShadow ? 'show-right-shadow' : ''}`} ref={scrollRef}>
               <div
                 style={{
                   width: totalGridWidth,

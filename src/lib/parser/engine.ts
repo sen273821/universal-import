@@ -114,7 +114,14 @@ function parseTextSource(blocks: TextBlock[], rule: ParseRule): OrderRecord[] {
     : blocks
 
   return baseBlocks
-    .map((block) => mapTextBlockToRecord(block, rule))
+    .map((block) => {
+      // 如果 block 有 record 字段（表格型PDF），直接使用
+      if (block.record) {
+        return toSafeOrderRecord(block.record)
+      }
+      // 否则使用文本映射
+      return mapTextBlockToRecord(block, rule)
+    })
     .filter((record) => Object.values(record).some((value) => normalizeCellValue(value) !== '' && value !== 0))
     .map((record) => toSafeOrderRecord(record))
 }
@@ -192,7 +199,7 @@ function mapTextBlockToRecord(block: TextBlock, rule: ParseRule): Partial<OrderR
 }
 
 function extractTextValue(mapping: TextMappingRule, block: TextBlock): string {
-  const extractedValue = extractByPattern(block.content, mapping.pattern, mapping.groupIndex)
+  const extractedValue = extractByPattern(block.content ?? '', mapping.pattern, mapping.groupIndex ?? 1)
   return extractedValue || normalizeCellValue(mapping.defaultValue)
 }
 
@@ -318,7 +325,7 @@ function parseMatrixSheet(sheet: GridSheet, rule: ParseRule): OrderRecord[] {
 function splitCardBlocks(blocks: TextBlock[], startPattern: string, endPattern?: string): TextBlock[] {
   const startRegex = new RegExp(startPattern, 'im')
   const endRegex = endPattern ? new RegExp(endPattern, 'im') : null
-  const lines = blocks.flatMap((block) => block.content.split('\n'))
+  const lines = blocks.flatMap((block) => (block.content ?? '').split('\n'))
   const nextBlocks: TextBlock[] = []
   let current: string[] = []
 

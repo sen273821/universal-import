@@ -177,7 +177,7 @@ export function makeRawPreviewFromSheets(sheets: GridSheet[]): string[][] {
 }
 
 export function makeRawPreviewFromBlocks(blocks: TextBlock[]): string[][] {
-  return blocks.slice(0, 10).map((block) => [block.content])
+  return blocks.slice(0, 10).map((block) => [block.content ?? ''])
 }
 
 export function setRecordField(record: Partial<OrderRecord>, field: OrderField, value: string): void {
@@ -199,7 +199,7 @@ export function toSafeOrderRecord(record: Partial<OrderRecord>): OrderRecord {
     recipientAddress: normalizeCellValue(record.recipientAddress),
     skuCode: normalizeCellValue(record.skuCode),
     skuName: normalizeCellValue(record.skuName),
-    skuQuantity: Number.isFinite(record.skuQuantity) ? Number(record.skuQuantity) : 0,
+    skuQuantity: Number.isFinite(record.skuQuantity) ? Number(record.skuQuantity) : (Number(record.skuQuantity) || 0),
     skuSpec: normalizeCellValue(record.skuSpec),
     remark: normalizeCellValue(record.remark),
   }

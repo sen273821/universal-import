@@ -391,22 +391,35 @@ export function analyzeTextContent(text: string, fileType: ParserFileType, fileN
   const assumptions: string[] = []
   let confidence = 0.6
 
-  // 检测记录分隔模式
-  const separatorResult = detectRecordSeparator(lines)
+  // 检测是否是配送单/发货单格式（带表格的PDF）
+  const tableResult = detectTableStructure(lines)
+  
+  if (tableResult.hasTable) {
+    // 表格型PDF：使用列映射
+    rule.ruleJson.columnMappings = tableResult.mappings
+    rule.ruleJson.headerRows = tableResult.headerRow + 1
+    rule.ruleJson.dataStartRow = tableResult.dataStartRow + 1
+    rule.name = `PDF配送单规则 - ${fileName}`
+    confidence = 0.75
+    assumptions.push(`检测到表格结构，表头在第 ${tableResult.headerRow + 1} 行`)
+    assumptions.push(`数据从第 ${tableResult.dataStartRow + 1} 行开始`)
+  } else {
+    // 纯文本型：使用正则提取
+    const separatorResult = detectRecordSeparator(lines)
+    if (separatorResult.pattern) {
+      rule.ruleJson.textRecordSeparatorPattern = separatorResult.pattern
+      confidence = 0.7
+      assumptions.push('已检测到记录分隔模式，请确认是否正确')
+    }
 
-  if (separatorResult.pattern) {
-    rule.ruleJson.textRecordSeparatorPattern = separatorResult.pattern
-    confidence = 0.7
-    assumptions.push('已检测到记录分隔模式，请确认是否正确')
-  }
-
-  // 从文本中提取字段模式
-  const textMappings = extractTextPatterns(lines)
-
-  if (textMappings.length > 0) {
-    rule.ruleJson.textMappings = textMappings
-    confidence = 0.65
-    assumptions.push('已从文本中提取字段匹配模式，请逐项确认')
+    const textMappings = extractTextPatterns(lines)
+    if (textMappings.length > 0) {
+      rule.ruleJson.textMappings = textMappings
+      confidence = 0.65
+      assumptions.push('已从文本中提取字段匹配模式，请逐项确认')
+    }
+    
+    rule.name = `文本解析规则 - ${fileName}`
   }
 
   // 检测尾部信息
@@ -420,15 +433,140 @@ export function analyzeTextContent(text: string, fileType: ParserFileType, fileN
     assumptions.push('检测到文本末尾包含收货人信息')
   }
 
-  rule.name = `文本解析规则 - ${fileName}`
-
   const explanation = [
     `文本共 ${lines.length} 行`,
-    separatorResult.pattern ? `检测到记录分隔模式` : '未检测到明确的记录分隔',
-    `提取了 ${textMappings.length} 个字段匹配规则`,
+    tableResult.hasTable ? `检测到表格结构，匹配了 ${tableResult.mappings.length} 个字段` : '未检测到表格结构',
+    `提取了 ${(rule.ruleJson.textMappings ?? []).length} 个字段匹配规则`,
   ].join('。') + '。'
 
   return { rule, confidence, explanation, assumptions }
+}
+
+/* ─────────────── PDF 表格结构检测 ─────────────── */
+
+interface TableResult {
+  hasTable: boolean
+  headerRow: number
+  dataStartRow: number
+  mappings: NonNullable<ParseRuleConfig['columnMappings']>
+}
+
+function detectTableStructure(lines: string[]): TableResult {
+  const result: TableResult = { hasTable: false, headerRow: 0, dataStartRow: 0, mappings: [] }
+  
+  // 检测表头关键字
+  const headerKeywords = ['物品编码', '物品名称', '商品编码', '商品名称', 'SKU', '规格', '数量', '单位', '订货', '发货']
+  
+  // 遍历查找表头行
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const cells = line.split('\t').map(c => c.trim())
+    
+    // 检查是否包含多个表头关键字
+    let matchCount = 0
+    let matchedKeywords: string[] = []
+    for (const cell of cells) {
+      for (const kw of headerKeywords) {
+        if (cell.includes(kw)) {
+          matchCount++
+          matchedKeywords.push(kw)
+          break
+        }
+      }
+    }
+    
+    // 如果一行中有3+个关键字，认为是表头
+    if (matchCount >= 3) {
+      result.hasTable = true
+      result.headerRow = i
+      
+      // 查找数据起始行（跳过分页标记）
+      let dataStart = i + 1
+      while (dataStart < lines.length) {
+        const line = lines[dataStart]
+        // 跳过分页标记行
+        if (line.includes('第') && line.includes('页') && line.includes('共')) {
+          dataStart++
+          continue
+        }
+        if (/^\d+ of \d+$/.test(line.trim()) || /^--\s*\d+ of \d+\s*--$/.test(line.trim())) {
+          dataStart++
+          continue
+        }
+        if (line.includes('---')) {
+          dataStart++
+          continue
+        }
+        break
+      }
+      result.dataStartRow = dataStart
+      
+      // 检测数据行是否有额外的序号列
+      const headerCells = cells
+      const dataLine = lines[dataStart] ?? ''
+      const dataCells = dataLine.split('\t').map(c => c.trim())
+      
+      // 计算列偏移
+      let columnOffset = 0
+      
+      // 检查数据行第一列是否是数字（序号）
+      if (dataCells.length > 0 && /^\d+$/.test(dataCells[0])) {
+        // 检查表头第一列是否不是数字
+        if (headerCells.length > 0 && !/^\d+$/.test(headerCells[0])) {
+          // 数据行有序号列，表头没有
+          columnOffset = 1
+        }
+      }
+      
+      // 解析表头列
+      for (let col = 0; col < headerCells.length; col++) {
+        const cell = headerCells[col]
+        if (!cell) continue
+        
+        // 匹配字段
+        const field = matchFieldFromHeader(cell)
+        if (field) {
+          result.mappings.push({
+            targetField: field,
+            headerPattern: escapeRegex(cell),
+            columnIndex: col + columnOffset,
+          })
+        }
+      }
+      
+      break
+    }
+  }
+  
+  return result
+}
+
+function matchFieldFromHeader(header: string): OrderField | null {
+  const lower = header.toLowerCase()
+  
+  // 按优先级匹配
+  const fieldPatterns: Array<{ field: OrderField; patterns: string[] }> = [
+    { field: 'skuCode', patterns: ['物品编码', '商品编码', 'sku编码', '货号', '编码'] },
+    { field: 'skuName', patterns: ['物品名称', '商品名称', '品名', '商品', '货品名称'] },
+    { field: 'skuSpec', patterns: ['规格', '规格型号', '型号', '包装'] },
+    { field: 'skuQuantity', patterns: ['数量', '发货数量', '件数', '物品数量', '商品数量', '订货数量'] },
+    { field: 'remark', patterns: ['备注', '说明'] },
+    { field: 'externalCode', patterns: ['单号', '订单号', '运单号', '外部单号'] },
+    { field: 'storeName', patterns: ['门店', '店铺', '店名', '收货门店'] },
+    { field: 'recipientName', patterns: ['收件人', '收货人', '姓名', '联系人'] },
+    { field: 'recipientPhone', patterns: ['电话', '手机', '联系电话'] },
+    { field: 'recipientAddress', patterns: ['地址', '收货地址', '收件地址'] },
+  ]
+  
+  for (const { field, patterns } of fieldPatterns) {
+    for (const pattern of patterns) {
+      if (lower.includes(pattern.toLowerCase())) {
+        return field
+      }
+    }
+  }
+  
+  return null
 }
 
 function detectRecordSeparator(lines: string[]): { pattern: string | null } {

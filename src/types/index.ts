@@ -39,8 +39,10 @@ export interface GridSheet {
 }
 
 export interface TextBlock {
-  index: number
-  content: string
+  index?: number
+  content?: string
+  text?: string
+  record?: Record<string, string>
 }
 
 export interface ExtractPattern {

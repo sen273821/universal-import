@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
-import Link from 'next/link'
 import { Noto_Sans_SC } from 'next/font/google'
-import { CircleUserRound, FileArchive, FileText, PackageSearch } from 'lucide-react'
+import { CircleUserRound } from 'lucide-react'
+import SidebarNav from '@/components/SidebarNav'
 import './globals.css'
 
 const notoSans = Noto_Sans_SC({
@@ -12,13 +12,10 @@ const notoSans = Noto_Sans_SC({
 export const metadata: Metadata = {
   title: '中通冷链-万能导入',
   description: '智能多格式批量下单系统',
+  icons: {
+    icon: '/logo-icon.png',
+  },
 }
-
-const navItems = [
-  { href: '#file-import', label: '文件导入', icon: FileArchive },
-  { href: '#template-rules', label: '模版规则维护', icon: FileText },
-  { href: '#order-history', label: '已导入运单', icon: PackageSearch },
-]
 
 export default function RootLayout({
   children,
@@ -32,27 +29,11 @@ export default function RootLayout({
           {/* 深色侧边栏 - 鲸天系统风格 */}
           <aside className="ui-sidebar">
             <div className="ui-sidebar-logo">
-              <div className="text-center">
-                <div className="text-xs tracking-[0.2em] text-white/60">中通冷链</div>
-                <div className="text-lg font-semibold text-white">万能导入 V2</div>
-              </div>
+              <img src="/logo.png" alt="中通冷链" className="h-6 w-auto" />
+              <div className="text-xs text-white/60">万能导入 V2</div>
             </div>
 
-            <nav className="ui-sidebar-nav">
-              {navItems.map((item) => {
-                const Icon = item.icon
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className="ui-sidebar-item"
-                  >
-                    <Icon className="h-4 w-4" />
-                    <span>{item.label}</span>
-                  </Link>
-                )
-              })}
-            </nav>
+            <SidebarNav />
 
             <div className="border-t border-white/10 p-4">
               <div className="text-xs text-white/50">面向物流批量下单的智能多格式解析工作台</div>

@@ -10,6 +10,7 @@ import ToastStack, { type ToastItem } from '@/components/ToastStack'
 
 import type { AIRuleSuggestion, OrderRecord, ParseResult, ParseRule, ValidationError } from '@/types'
 import { normalizeIncomingRule } from '@/lib/rules'
+import { useFileReaderWorker } from '@/hooks/useFileReaderWorker'
 
 /* ─────────────── 工具函数 ─────────────── */
 
@@ -178,7 +179,9 @@ export default function Home() {
     pushToast('已复制规则', '请修改后保存为新规则', 'info')
   }, [pushToast])
 
-  /* ─── 解析 ─── */
+  /* ─── 解析（使用 Web Worker Hook 读取大文件，不阻塞 UI） ─── */
+  const { readFile: workerReadFile, progress: workerProgress } = useFileReaderWorker()
+
   const handleTest = useCallback(async () => {
     if (!file || !currentRule) {
       pushToast('请先上传文件并选择规则', undefined, 'error')
@@ -188,13 +191,19 @@ export default function Home() {
     setFileBusy(true)
     setProgress(0)
     try {
-      const timer = setInterval(() => setProgress((p) => Math.min(p + 8, 90)), 120)
+      // 使用 Web Worker Hook 读取大文件（>1MB 时自动走 Worker 分块合并）
+      setProgress(5)
+      const buffer = await workerReadFile(file)
+      setProgress(60)
+      const fileForUpload = new File([buffer], file.name, { type: file.type })
+
+      // 上传并解析
+      setProgress(60)
       const formData = new FormData()
-      formData.append('file', file)
+      formData.append('file', fileForUpload)
       formData.append('rule', JSON.stringify(currentRule))
       const res = await fetch('/api/parse', { method: 'POST', body: formData })
-      clearInterval(timer)
-      setProgress(100)
+      setProgress(95)
       const body = await res.json()
       if (!res.ok) throw new Error(body.error || '解析失败')
       const result: ParseResult = body
@@ -209,7 +218,7 @@ export default function Home() {
       setIsTesting(false)
       setFileBusy(false)
     }
-  }, [file, currentRule, pushToast])
+  }, [file, currentRule, pushToast, workerReadFile])
 
   /* ─── 提交 ─── */
   const handleSubmit = useCallback(async () => {

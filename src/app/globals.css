@@ -105,13 +105,16 @@ button {
 }
 
 .ui-sidebar-logo {
-  height: var(--ztocc-header-height);
+  height: auto;
+  min-height: var(--ztocc-header-height);
   background: rgba(1, 190, 190, 0.15);
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 0 16px;
+  padding: 12px 16px;
+  gap: 4px;
 }
 
 .ui-sidebar-nav {
@@ -357,6 +360,35 @@ button {
   position: relative;
   overflow: auto;
   max-height: min(68vh, 820px);
+  /* 平滑滚动 */
+  scroll-behavior: smooth;
+  /* 自定义滚动条 - 更明显的横向滚动条 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 158, 191, 0.4) transparent;
+}
+
+/* 横向滚动提示阴影 */
+.ui-table-wrap::before,
+.ui-table-wrap::after {
+  content: '';
+  position: sticky;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  z-index: 25;
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+.ui-table-wrap::after {
+  right: 0;
+  background: linear-gradient(to left, rgba(243, 249, 254, 0.8), transparent);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.ui-table-wrap.show-right-shadow::after {
+  opacity: 1;
 }
 
 .ui-table {
