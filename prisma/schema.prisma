@@ -33,6 +33,7 @@ model Order {
   skuQuantity      Int
   skuSpec          String?
   remark           String?
+  hasOpenException Boolean    @default(false)
   ruleId           String?
   createdAt        DateTime   @default(now())
   rule             ParseRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
