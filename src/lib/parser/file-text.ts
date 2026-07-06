@@ -65,7 +65,7 @@ export async function extractFileText(file: File, fileType: ParserFileType): Pro
   }
 }
 
-async function extractExcelText(file: File): Promise<string> {
+export async function extractExcelText(file: File): Promise<string> {
   const buffer = await file.arrayBuffer()
   const workbook = XLSX.read(buffer, { type: 'array' })
 

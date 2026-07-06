@@ -113,6 +113,7 @@ export function extractFooterLabels(rows: string[][], labels: string[]): string 
 
 export function validateOrders(records: OrderRecord[]): ValidationError[] {
   const errors: ValidationError[] = []
+  const phoneRegex = /^1[3-9]\d{9}$/
 
   records.forEach((record, index) => {
     const row = index + 1
@@ -136,6 +137,12 @@ export function validateOrders(records: OrderRecord[]): ValidationError[] {
 
     if (!hasGroupA && !hasGroupB) {
       errors.push({ row, field: 'recipientGroup', message: '收货门店或收件人信息至少填写一组' })
+    }
+
+    // 电话格式校验：填写了电话时才校验
+    const phone = normalizeCellValue(record.recipientPhone)
+    if (phone && !phoneRegex.test(phone)) {
+      errors.push({ row, field: 'recipientPhone', message: '收件人电话格式不正确，需为11位手机号', value: phone })
     }
   })
 

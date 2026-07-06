@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import * as XLSX from 'xlsx'
+import { generateRuleWithAI } from '@/lib/ai/rule-generator'
 import { analyzeExcelBuffer, analyzeTextContent } from '@/lib/ai/local-analyzer'
 import type { ParserFileType } from '@/types'
 
@@ -17,17 +17,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '文件类型不正确' }, { status: 400 })
     }
 
-    let suggestion
-
+    let content = ''
     if (fileType === 'excel') {
-      // Excel: 读取 buffer 进行本地分析
-      const buffer = await file.arrayBuffer()
-      suggestion = analyzeExcelBuffer(buffer, file.name)
+      const { extractExcelText } = await import('@/lib/parser/file-text')
+      content = await extractExcelText(file)
     } else {
-      // Word/PDF: 提取文本进行本地分析
       const { extractFileText } = await import('@/lib/parser/file-text')
-      const text = await extractFileText(file, fileType)
-      suggestion = analyzeTextContent(text, fileType, file.name)
+      content = await extractFileText(file, fileType)
+    }
+
+    let suggestion
+    try {
+      // 优先使用大模型生成规则
+      suggestion = await generateRuleWithAI(content, fileType, file.name)
+    } catch (aiError) {
+      console.warn('大模型规则生成失败，降级到本地分析器', aiError)
+      if (fileType === 'excel') {
+        const buffer = await file.arrayBuffer()
+        suggestion = analyzeExcelBuffer(buffer, file.name)
+      } else {
+        suggestion = analyzeTextContent(content, fileType, file.name)
+      }
     }
 
     return NextResponse.json(suggestion)

@@ -193,8 +193,8 @@ function withRuleDefaults(ruleJson: ParseRuleConfig): ParseRuleConfig {
     trimTrailingEmptyRows: ruleJson.trimTrailingEmptyRows ?? base.trimTrailingEmptyRows,
     multiSheet: ruleJson.multiSheet ?? base.multiSheet,
     textRecordSeparatorPattern: ruleJson.textRecordSeparatorPattern ?? base.textRecordSeparatorPattern,
-    columnMappings: ruleJson.columnMappings ?? base.columnMappings ?? [],
-    textMappings: ruleJson.textMappings ?? base.textMappings ?? [],
+    columnMappings: normalizeColumnMappings(ruleJson.columnMappings),
+    textMappings: normalizeTextMappings(ruleJson.textMappings),
     sheetNames: ruleJson.sheetNames ?? [],
     footerExtraction,
     footerInfo,
@@ -203,4 +203,35 @@ function withRuleDefaults(ruleJson: ParseRuleConfig): ParseRuleConfig {
     cardSplit,
     splitCellValue,
   }
+}
+
+function normalizeColumnMappings(mappings?: ParseRuleConfig['columnMappings']): ParseRuleConfig['columnMappings'] {
+  if (!Array.isArray(mappings)) return []
+  return mappings.map((m) => {
+    const raw = (m as unknown) as Record<string, unknown>
+    return {
+      targetField: ((m.targetField ?? raw.sourceField) || 'skuCode') as OrderField,
+      columnIndex: m.columnIndex,
+      headerPattern: (m.headerPattern ?? raw.columnPattern) as string | undefined,
+      fallbackPatterns: m.fallbackPatterns,
+      valuePattern: m.valuePattern,
+      defaultValue: m.defaultValue,
+      staticValue: m.staticValue,
+      required: m.required,
+    }
+  })
+}
+
+function normalizeTextMappings(mappings?: ParseRuleConfig['textMappings']): ParseRuleConfig['textMappings'] {
+  if (!Array.isArray(mappings)) return []
+  return mappings.map((m) => {
+    const raw = (m as unknown) as Record<string, unknown>
+    return {
+      targetField: ((m.targetField ?? raw.sourceField) || 'skuCode') as OrderField,
+      pattern: m.pattern,
+      groupIndex: m.groupIndex,
+      required: m.required,
+      defaultValue: m.defaultValue,
+    }
+  })
 }

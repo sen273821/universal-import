@@ -64,11 +64,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '请提供要提交的运单数据' }, { status: 400 })
     }
 
-    const normalizedOrders = orders.map((order: Record<string, unknown>) => normalizeOrderInput(order, ruleId))
+    const normalizedOrders: Array<OrderRecord & { ruleId?: string }> = orders.map((order: Record<string, unknown>) => normalizeOrderInput(order, ruleId))
     const validationErrors = validateOrderPayload(normalizedOrders)
 
     if (validationErrors.length > 0) {
       return NextResponse.json({ error: '运单校验失败', validationErrors }, { status: 400 })
+    }
+
+    // 与历史数据的外部编码重复检测
+    const externalCodes = normalizedOrders
+      .map((order) => order.externalCode)
+      .filter((code): code is string => Boolean(code))
+    const existingCodeSet = new Set<string>()
+    if (externalCodes.length > 0) {
+      const existing = await db.order.findMany({
+        where: { externalCode: { in: externalCodes } },
+        select: { externalCode: true },
+      })
+      existing.forEach((item) => {
+        if (item.externalCode) existingCodeSet.add(item.externalCode)
+      })
+    }
+
+    if (existingCodeSet.size > 0) {
+      const historyErrors = normalizedOrders.flatMap((order, index) => {
+        const code = order.externalCode
+        if (code && existingCodeSet.has(code)) {
+          return [{ row: index + 1, field: 'externalCode', message: `外部编码已在历史数据中存在：${code}` }]
+        }
+        return []
+      })
+      return NextResponse.json({ error: '运单校验失败', validationErrors: historyErrors }, { status: 400 })
     }
 
     const result = await db.order.createMany({
@@ -83,6 +109,7 @@ export async function POST(request: NextRequest) {
 }
 
 function validateOrderPayload(orders: Array<OrderRecord & { ruleId?: string }>) {
+  const phoneRegex = /^1[3-9]\d{9}$/
   return orders.flatMap((order, index) => {
     const row = index + 1
     const errors: Array<{ row: number; field: string; message: string }> = []
@@ -101,6 +128,11 @@ function validateOrderPayload(orders: Array<OrderRecord & { ruleId?: string }>) 
     const hasGroupB = Boolean(order.recipientName && order.recipientPhone && order.recipientAddress)
     if (!hasGroupA && !hasGroupB) {
       errors.push({ row, field: 'recipientGroup', message: '收货门店或收件人信息至少填写一组' })
+    }
+
+    const phone = order.recipientPhone?.trim() ?? ''
+    if (phone && !phoneRegex.test(phone)) {
+      errors.push({ row, field: 'recipientPhone', message: '收件人电话格式不正确，需为11位手机号' })
     }
 
     return errors

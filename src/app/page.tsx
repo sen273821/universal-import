@@ -181,6 +181,14 @@ export default function Home() {
 
   /* ─── 解析（使用 Web Worker Hook 读取大文件，不阻塞 UI） ─── */
   const { readFile: workerReadFile, progress: workerProgress } = useFileReaderWorker()
+  const [parseProgressInterval, setParseProgressInterval] = useState<ReturnType<typeof setInterval> | null>(null)
+
+  // 文件读取阶段使用 Worker 真实进度（映射到 0-50%）
+  useEffect(() => {
+    if (isTesting && workerProgress && workerProgress.status === 'reading') {
+      setProgress(Math.round(workerProgress.progress * 0.5))
+    }
+  }, [isTesting, workerProgress])
 
   const handleTest = useCallback(async () => {
     if (!file || !currentRule) {
@@ -190,20 +198,23 @@ export default function Home() {
     setIsTesting(true)
     setFileBusy(true)
     setProgress(0)
+    let interval: ReturnType<typeof setInterval> | null = null
     try {
       // 使用 Web Worker Hook 读取大文件（>1MB 时自动走 Worker 分块合并）
-      setProgress(5)
       const buffer = await workerReadFile(file)
-      setProgress(60)
+      setProgress(50)
       const fileForUpload = new File([buffer], file.name, { type: file.type })
 
-      // 上传并解析
-      setProgress(60)
+      // 上传并解析阶段：平滑递增 50% -> 95%，解析完成时停止
+      interval = setInterval(() => {
+        setProgress((prev) => (prev < 90 ? prev + 1 : prev))
+      }, 100)
+      setParseProgressInterval(interval)
+
       const formData = new FormData()
       formData.append('file', fileForUpload)
       formData.append('rule', JSON.stringify(currentRule))
       const res = await fetch('/api/parse', { method: 'POST', body: formData })
-      setProgress(95)
       const body = await res.json()
       if (!res.ok) throw new Error(body.error || '解析失败')
       const result: ParseResult = body
@@ -215,10 +226,13 @@ export default function Home() {
       setParsedData([])
       setErrors([])
     } finally {
+      if (interval) clearInterval(interval)
+      if (parseProgressInterval) clearInterval(parseProgressInterval)
+      setProgress(100)
       setIsTesting(false)
       setFileBusy(false)
     }
-  }, [file, currentRule, pushToast, workerReadFile])
+  }, [file, currentRule, pushToast, workerReadFile, parseProgressInterval])
 
   /* ─── 提交 ─── */
   const handleSubmit = useCallback(async () => {
